@@ -1,4 +1,4 @@
-import { NetworkAdapter, NetworkMetric } from '../shared/types';
+import { NetworkAdapter, NetworkMetric, AggregatedMetric } from '../shared/types';
 
 export {};
 
@@ -8,16 +8,19 @@ declare global {
       // Theme
       getTheme: () => Promise<string>;
       setTheme: (theme: 'dark' | 'light' | 'system') => Promise<string>;
-      // Adapter detection (Task 1.2)
+      // Adapters
       getAdapters: () => Promise<NetworkAdapter[]>;
       getPrimaryAdapter: () => Promise<NetworkAdapter | null>;
-      // Real-time adapter change events (Task 1.3)
       onNetworkChange: (callback: (adapters: NetworkAdapter[]) => void) => void;
       removeNetworkListeners: () => void;
-      // Live traffic metrics (Task 2.1)
+      // Live metrics
       getLatestMetrics: () => Promise<NetworkMetric[]>;
       onNetworkMetric: (callback: (metrics: NetworkMetric[]) => void) => void;
       removeMetricListeners: () => void;
+      // Historical DB queries
+      getMetrics: (query?: { adapterName?: string; since?: number; until?: number; limit?: number }) => Promise<NetworkMetric[]>;
+      getMetricsSummary: (adapterName: string, since: number, until: number) => Promise<{ totalSent: number; totalReceived: number; peakSpeedUp: number; peakSpeedDown: number; rowCount: number }>;
+      getAggregated: (query?: { adapterName?: string; since?: number; until?: number }) => Promise<AggregatedMetric[]>;
     };
   }
 }

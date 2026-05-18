@@ -1,6 +1,7 @@
 import { app, BrowserWindow, ipcMain, nativeTheme } from 'electron';
 import * as path from 'path';
 import { IPC_CHANNELS } from '../shared/types';
+import { initDatabase, closeDatabase } from './db/database';
 import { registerNetworkHandlers, startMonitoring, stopMonitoring } from './ipc/networkHandlers';
 import { logAdapters } from './network/adapterDetector';
 
@@ -31,22 +32,23 @@ function createWindow(): void {
 
   mainWindow.once('ready-to-show', () => {
     mainWindow?.show();
-    // Start real-time monitoring once the window is ready to receive events
     startMonitoring();
   });
 
-  mainWindow.on('closed', () => {
-    mainWindow = null;
-  });
+  mainWindow.on('closed', () => { mainWindow = null; });
 }
 
 app.whenReady().then(() => {
-  // Register all network-related IPC handlers
+  // 1. Init DB first (creates tables if needed)
+  initDatabase();
+
+  // 2. Register IPC handlers (they use the DB)
   registerNetworkHandlers();
 
-  // Log adapters to console on startup (development aid)
+  // 3. Log adapters for dev visibility
   logAdapters();
 
+  // 4. Create the window
   createWindow();
 
   app.on('activate', () => {
@@ -54,20 +56,19 @@ app.whenReady().then(() => {
   });
 });
 
-// Stop monitor cleanly when the app is quitting
 app.on('will-quit', () => {
   stopMonitoring();
+  closeDatabase();
 });
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit();
 });
 
-// IPC: theme
-ipcMain.handle(IPC_CHANNELS.GET_THEME, () => {
-  return nativeTheme.shouldUseDarkColors ? 'dark' : 'light';
-});
-
+// Theme IPC
+ipcMain.handle(IPC_CHANNELS.GET_THEME, () =>
+  nativeTheme.shouldUseDarkColors ? 'dark' : 'light'
+);
 ipcMain.handle(IPC_CHANNELS.SET_THEME, (_event, theme: 'dark' | 'light' | 'system') => {
   nativeTheme.themeSource = theme;
   return nativeTheme.shouldUseDarkColors ? 'dark' : 'light';
