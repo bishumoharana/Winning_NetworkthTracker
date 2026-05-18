@@ -4,8 +4,15 @@ import { IPC_CHANNELS } from '../shared/types';
 import { initDatabase, closeDatabase } from './db/database';
 import { registerNetworkHandlers, startMonitoring, stopMonitoring } from './ipc/networkHandlers';
 import { logAdapters } from './network/adapterDetector';
+import { trayManager } from './tray/trayManager';
 
 let mainWindow: BrowserWindow | null = null;
+
+/**
+ * When true, the app is quitting for real (e.g. via tray Quit or Cmd+Q).
+ * When false, window close hides the window instead of quitting.
+ */
+let forceQuit = false;
 
 function createWindow(): void {
   mainWindow = new BrowserWindow({
@@ -33,31 +40,41 @@ function createWindow(): void {
   mainWindow.once('ready-to-show', () => {
     mainWindow?.show();
     startMonitoring();
+    // Init tray after window is visible
+    trayManager.init(mainWindow!);
+  });
+
+  // Intercept close: hide to tray instead of quitting
+  mainWindow.on('close', (event) => {
+    if (!forceQuit) {
+      event.preventDefault();
+      mainWindow?.hide();
+      // Rebuild menu so label toggles to 'Show Window'
+      trayManager.buildMenu();
+    }
   });
 
   mainWindow.on('closed', () => { mainWindow = null; });
 }
 
 app.whenReady().then(() => {
-  // 1. Init DB first (creates tables if needed)
   initDatabase();
-
-  // 2. Register IPC handlers (they use the DB)
   registerNetworkHandlers();
-
-  // 3. Log adapters for dev visibility
   logAdapters();
-
-  // 4. Create the window
   createWindow();
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
+    else trayManager.showWindow();
   });
 });
 
+// Set forceQuit flag so the 'close' handler lets the window actually close
+app.on('before-quit', () => { forceQuit = true; });
+
 app.on('will-quit', () => {
   stopMonitoring();
+  trayManager.destroy();
   closeDatabase();
 });
 

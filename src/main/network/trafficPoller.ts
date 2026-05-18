@@ -2,13 +2,10 @@ import { BrowserWindow } from 'electron';
 import { NetworkMetric } from '../../shared/types';
 import { captureTrafficMetrics } from './trafficCapture';
 import { insertMetricsBatch } from '../db/metricsRepository';
+import { trayManager } from '../tray/trayManager';
 
 const NETWORK_METRIC_CHANNEL = 'network-metric';
 
-/**
- * TrafficPoller captures network byte counters every `intervalMs`,
- * persists them to SQLite, and broadcasts to all renderer windows.
- */
 export class TrafficPoller {
   private intervalMs: number;
   private timer: NodeJS.Timeout | null = null;
@@ -39,17 +36,16 @@ export class TrafficPoller {
       const metrics = await captureTrafficMetrics();
       this.latestMetrics = metrics;
 
-      // Persist to SQLite (errors must never crash the poller)
-      try {
-        insertMetricsBatch(metrics);
-      } catch (dbErr) {
-        // eslint-disable-next-line no-console
-        console.error('[TrafficPoller] DB write error:', dbErr);
-      }
+      // Persist to SQLite
+      try { insertMetricsBatch(metrics); }
+      catch (dbErr) { console.error('[TrafficPoller] DB write error:', dbErr); }
+
+      // Update tray tooltip with live speed
+      try { trayManager.updateTooltip(metrics); }
+      catch { /* tray may not be inited yet */ }
 
       this.broadcast(metrics);
     } catch (err) {
-      // eslint-disable-next-line no-console
       console.error('[TrafficPoller] tick error:', err);
     }
   }
