@@ -1,7 +1,7 @@
 import { app, BrowserWindow, ipcMain, nativeTheme } from 'electron';
 import * as path from 'path';
 import { IPC_CHANNELS } from '../shared/types';
-import { registerAdapterHandlers } from './ipc/adapterHandlers';
+import { registerNetworkHandlers, startMonitoring, stopMonitoring } from './ipc/networkHandlers';
 import { logAdapters } from './network/adapterDetector';
 
 let mainWindow: BrowserWindow | null = null;
@@ -22,7 +22,6 @@ function createWindow(): void {
     backgroundColor: '#1a1a2e',
   });
 
-  // Load the renderer
   if (process.env.NODE_ENV === 'development') {
     mainWindow.loadURL('http://localhost:3000');
     mainWindow.webContents.openDevTools();
@@ -32,6 +31,8 @@ function createWindow(): void {
 
   mainWindow.once('ready-to-show', () => {
     mainWindow?.show();
+    // Start real-time monitoring once the window is ready to receive events
+    startMonitoring();
   });
 
   mainWindow.on('closed', () => {
@@ -39,12 +40,11 @@ function createWindow(): void {
   });
 }
 
-// App lifecycle
 app.whenReady().then(() => {
-  // Register all IPC handlers before creating the window
-  registerAdapterHandlers();
+  // Register all network-related IPC handlers
+  registerNetworkHandlers();
 
-  // Log detected adapters to console on startup (dev aid)
+  // Log adapters to console on startup (development aid)
   logAdapters();
 
   createWindow();
@@ -52,6 +52,11 @@ app.whenReady().then(() => {
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });
+});
+
+// Stop monitor cleanly when the app is quitting
+app.on('will-quit', () => {
+  stopMonitoring();
 });
 
 app.on('window-all-closed', () => {

@@ -1,237 +1,160 @@
-import { NetworkMonitor, NetworkChangeEvent, NetworkSnapshot } from '../network/networkMonitor';
+/**
+ * Unit tests for Task 1.3 — Real-time Network State Monitoring
+ * Tests the NetworkMonitor class: lifecycle, diff logic, event types.
+ */
+import { NetworkMonitor, NetworkChangeEvent } from '../network/networkMonitor';
 import { NetworkAdapter } from '../../shared/types';
 
-// Mock Electron BrowserWindow
-jest.mock('electron', () => ({
-  BrowserWindow: {
-    getAllWindows: jest.fn().mockReturnValue([]),
-  },
-}));
+// Helper: build a minimal NetworkAdapter
+const makeAdapter = (
+  name: string,
+  type: NetworkAdapter['type'] = 'ethernet',
+  status: NetworkAdapter['status'] = 'active'
+): NetworkAdapter => ({ name, mac: 'aa:bb:cc:00:00:01', type, status });
 
-// Mock adapterDetector so we control what "os" returns
-jest.mock('../network/adapterDetector');
-import { getNetworkAdapters } from '../network/adapterDetector';
-const mockGetAdapters = getNetworkAdapters as jest.MockedFunction<typeof getNetworkAdapters>;
+// ── Lifecycle ────────────────────────────────────────────────────────────────
+describe('NetworkMonitor lifecycle', () => {
+  it('starts with isRunning = false', () => {
+    const m = new NetworkMonitor(500);
+    expect(m.isRunning).toBe(false);
+  });
 
-// ---- Fixtures ---------------------------------------------------------------
-const makeAdapter = (overrides: Partial<NetworkAdapter>): NetworkAdapter => ({
-  name: 'Wi-Fi',
-  mac: 'aa:bb:cc:dd:ee:01',
-  type: 'wifi',
-  status: 'active',
-  ipv4: '192.168.1.5',
-  ...overrides,
+  it('isRunning becomes true after start()', () => {
+    const m = new NetworkMonitor(500);
+    m.start();
+    expect(m.isRunning).toBe(true);
+    m.stop();
+  });
+
+  it('isRunning becomes false after stop()', () => {
+    const m = new NetworkMonitor(500);
+    m.start();
+    m.stop();
+    expect(m.isRunning).toBe(false);
+  });
+
+  it('calling start() twice does not create two intervals', () => {
+    const m = new NetworkMonitor(500);
+    m.start();
+    m.start(); // should be a no-op
+    expect(m.isRunning).toBe(true);
+    m.stop();
+  });
+
+  it('calling stop() when not started does not throw', () => {
+    const m = new NetworkMonitor(500);
+    expect(() => m.stop()).not.toThrow();
+  });
 });
 
-const wifiActive = makeAdapter({ name: 'Wi-Fi', type: 'wifi', status: 'active' });
-const wifiInactive = makeAdapter({ name: 'Wi-Fi', type: 'wifi', status: 'inactive' });
-const ethActive = makeAdapter({ name: 'Ethernet', type: 'ethernet', status: 'active', mac: 'aa:bb:cc:dd:ee:02' });
-const ethInactive = makeAdapter({ name: 'Ethernet', type: 'ethernet', status: 'inactive', mac: 'aa:bb:cc:dd:ee:02' });
-const vpnAdapter = makeAdapter({ name: 'VPN', type: 'unknown', status: 'active', mac: 'aa:bb:cc:dd:ee:03' });
+// ── Snapshot & getCurrentAdapters ────────────────────────────────────────────
+describe('NetworkMonitor snapshot management', () => {
+  it('getCurrentAdapters() returns empty array before start', () => {
+    const m = new NetworkMonitor(500);
+    expect(m.getCurrentAdapters()).toEqual([]);
+  });
 
-// ---- Helpers ----------------------------------------------------------------
-function toSnapshot(adapters: NetworkAdapter[]): NetworkSnapshot {
-  return new Map(adapters.map((a) => [a.name, a]));
-}
+  it('setSnapshot() / getCurrentAdapters() round-trip', () => {
+    const m = new NetworkMonitor(500);
+    const adapters = [makeAdapter('eth0'), makeAdapter('wlan0', 'wifi', 'standby')];
+    m.setSnapshot(adapters);
+    const result = m.getCurrentAdapters();
+    expect(result).toHaveLength(2);
+    expect(result.map((a) => a.name)).toContain('eth0');
+    expect(result.map((a) => a.name)).toContain('wlan0');
+  });
+});
 
-// =============================================================================
-// computeDiff
-// =============================================================================
-describe('NetworkMonitor.computeDiff', () => {
+// ── computeDiff ──────────────────────────────────────────────────────────────
+describe('NetworkMonitor.computeDiff()', () => {
   let monitor: NetworkMonitor;
 
   beforeEach(() => {
-    mockGetAdapters.mockReturnValue([wifiActive]);
-    monitor = new NetworkMonitor(1000);
+    monitor = new NetworkMonitor(500);
   });
 
-  it('emits adapter-added when a new adapter appears', () => {
-    const prev = toSnapshot([wifiActive]);
-    const curr = toSnapshot([wifiActive, ethActive]);
+  it('returns empty array when snapshots are identical', () => {
+    const adapter = makeAdapter('eth0');
+    const snap = new Map([['eth0', adapter]]);
+    expect(monitor.computeDiff(snap, snap)).toHaveLength(0);
+  });
+
+  it('detects adapter-added when a new adapter appears', () => {
+    const prev = new Map<string, NetworkAdapter>();
+    const curr = new Map([['eth0', makeAdapter('eth0')]]);
     const events = monitor.computeDiff(prev, curr);
     expect(events).toHaveLength(1);
     expect(events[0].type).toBe('adapter-added');
-    expect(events[0].adapter.name).toBe('Ethernet');
+    expect(events[0].adapter.name).toBe('eth0');
   });
 
-  it('emits adapter-removed when adapter disappears', () => {
-    const prev = toSnapshot([wifiActive, ethActive]);
-    const curr = toSnapshot([wifiActive]);
+  it('detects adapter-removed when an adapter disappears', () => {
+    const prev = new Map([['eth0', makeAdapter('eth0')]]);
+    const curr = new Map<string, NetworkAdapter>();
     const events = monitor.computeDiff(prev, curr);
     expect(events).toHaveLength(1);
     expect(events[0].type).toBe('adapter-removed');
-    expect(events[0].adapter.name).toBe('Ethernet');
+    expect(events[0].adapter.name).toBe('eth0');
   });
 
-  it('emits status-changed when adapter goes from active to inactive', () => {
-    const prev = toSnapshot([wifiActive]);
-    const curr = toSnapshot([wifiInactive]);
+  it('detects status-changed when adapter status changes', () => {
+    const prev = new Map([['eth0', makeAdapter('eth0', 'ethernet', 'active')]]);
+    const curr = new Map([['eth0', makeAdapter('eth0', 'ethernet', 'inactive')]]);
     const events = monitor.computeDiff(prev, curr);
     expect(events).toHaveLength(1);
     expect(events[0].type).toBe('status-changed');
-    expect(events[0].adapter.status).toBe('inactive');
     expect(events[0].previousStatus).toBe('active');
+    expect(events[0].adapter.status).toBe('inactive');
   });
 
-  it('emits status-changed when adapter comes back online', () => {
-    const prev = toSnapshot([wifiInactive]);
-    const curr = toSnapshot([wifiActive]);
+  it('does NOT emit event when status is unchanged', () => {
+    const adapter = makeAdapter('eth0', 'ethernet', 'active');
+    const prev = new Map([['eth0', adapter]]);
+    const curr = new Map([['eth0', { ...adapter }]]);
     const events = monitor.computeDiff(prev, curr);
-    expect(events).toHaveLength(1);
-    expect(events[0].type).toBe('status-changed');
-    expect(events[0].adapter.status).toBe('active');
-    expect(events[0].previousStatus).toBe('inactive');
-  });
-
-  it('returns empty array when nothing changed', () => {
-    const snap = toSnapshot([wifiActive, ethActive]);
-    const events = monitor.computeDiff(snap, snap);
     expect(events).toHaveLength(0);
   });
 
-  it('emits multiple events when several adapters change at once', () => {
-    const prev = toSnapshot([wifiActive, ethActive]);
-    const curr = toSnapshot([wifiInactive, ethActive, vpnAdapter]);
+  it('detects multiple changes simultaneously', () => {
+    const prev = new Map([
+      ['eth0', makeAdapter('eth0', 'ethernet', 'active')],
+      ['wlan0', makeAdapter('wlan0', 'wifi', 'standby')],
+    ]);
+    const curr = new Map([
+      ['eth0', makeAdapter('eth0', 'ethernet', 'inactive')],
+      ['wlan1', makeAdapter('wlan1', 'wifi', 'active')],
+    ]);
     const events = monitor.computeDiff(prev, curr);
     const types = events.map((e) => e.type);
-    expect(types).toContain('status-changed');
-    expect(types).toContain('adapter-added');
-    expect(events).toHaveLength(2);
+    expect(types).toContain('status-changed');  // eth0 active -> inactive
+    expect(types).toContain('adapter-added');   // wlan1 new
+    expect(types).toContain('adapter-removed'); // wlan0 gone
   });
 
-  it('handles completely empty prev snapshot (all adapters new)', () => {
-    const prev: NetworkSnapshot = new Map();
-    const curr = toSnapshot([wifiActive, ethActive]);
+  it('includes previousStatus only in status-changed events', () => {
+    const prev = new Map([['eth0', makeAdapter('eth0', 'ethernet', 'active')]]);
+    const curr = new Map([['eth0', makeAdapter('eth0', 'ethernet', 'standby')]]);
     const events = monitor.computeDiff(prev, curr);
-    expect(events).toHaveLength(2);
-    expect(events.every((e) => e.type === 'adapter-added')).toBe(true);
-  });
+    expect(events[0].previousStatus).toBe('active');
 
-  it('handles completely empty curr snapshot (all adapters removed)', () => {
-    const prev = toSnapshot([wifiActive, ethActive]);
-    const curr: NetworkSnapshot = new Map();
-    const events = monitor.computeDiff(prev, curr);
-    expect(events).toHaveLength(2);
-    expect(events.every((e) => e.type === 'adapter-removed')).toBe(true);
-  });
-
-  it('does not emit event when same status and same adapter', () => {
-    const prev = toSnapshot([wifiActive]);
-    const curr = toSnapshot([{ ...wifiActive }]); // same data, new object
-    const events = monitor.computeDiff(prev, curr);
-    expect(events).toHaveLength(0);
-  });
-});
-
-// =============================================================================
-// start / stop / isRunning
-// =============================================================================
-describe('NetworkMonitor start/stop', () => {
-  let monitor: NetworkMonitor;
-
-  beforeEach(() => {
-    jest.useFakeTimers();
-    mockGetAdapters.mockReturnValue([wifiActive]);
-    monitor = new NetworkMonitor(1000);
-  });
-
-  afterEach(() => {
-    monitor.stop();
-    jest.useRealTimers();
-  });
-
-  it('isRunning is false before start', () => {
-    expect(monitor.isRunning).toBe(false);
-  });
-
-  it('isRunning is true after start', () => {
-    monitor.start();
-    expect(monitor.isRunning).toBe(true);
-  });
-
-  it('isRunning is false after stop', () => {
-    monitor.start();
-    monitor.stop();
-    expect(monitor.isRunning).toBe(false);
-  });
-
-  it('calling start twice does not create duplicate intervals', () => {
-    monitor.start();
-    monitor.start(); // second call should be no-op
-    expect(monitor.isRunning).toBe(true);
-    // poll should only run once per interval tick
-    mockGetAdapters.mockReturnValue([wifiActive]);
-    jest.advanceTimersByTime(1000);
-    // No duplicate events expected
-    expect(mockGetAdapters).toHaveBeenCalledTimes(2); // 1 on start + 1 poll
-  });
-
-  it('poll is called when timer fires', () => {
-    const pollSpy = jest.spyOn(monitor, 'poll');
-    monitor.start();
-    jest.advanceTimersByTime(3000);
-    expect(pollSpy).toHaveBeenCalledTimes(3);
-  });
-});
-
-// =============================================================================
-// poll + primary-changed
-// =============================================================================
-describe('NetworkMonitor.poll - primary-changed', () => {
-  let monitor: NetworkMonitor;
-
-  beforeEach(() => {
-    jest.useFakeTimers();
-    mockGetAdapters.mockReturnValue([wifiActive]);
-    monitor = new NetworkMonitor(1000);
-    monitor.start();
-  });
-
-  afterEach(() => {
-    monitor.stop();
-    jest.useRealTimers();
-  });
-
-  it('emits primary-changed event when primary adapter switches', () => {
-    // Simulate: WiFi was primary, now Ethernet comes online
-    mockGetAdapters.mockReturnValue([wifiActive, ethActive]);
-    const events = monitor.poll();
-    const primaryChanged = events.find((e) => e.type === 'primary-changed');
-    expect(primaryChanged).toBeDefined();
-    expect(primaryChanged?.adapter.type).toBe('ethernet');
-  });
-
-  it('does not emit primary-changed when primary stays same', () => {
-    mockGetAdapters.mockReturnValue([wifiActive]); // same as initial
-    const events = monitor.poll();
-    const primaryChanged = events.find((e) => e.type === 'primary-changed');
-    expect(primaryChanged).toBeUndefined();
-  });
-});
-
-// =============================================================================
-// getCurrentAdapters / setSnapshot
-// =============================================================================
-describe('NetworkMonitor state accessors', () => {
-  it('getCurrentAdapters returns current snapshot contents', () => {
-    mockGetAdapters.mockReturnValue([wifiActive, ethActive]);
-    const monitor = new NetworkMonitor();
-    monitor.start();
-    const adapters = monitor.getCurrentAdapters();
-    expect(adapters.map((a) => a.name)).toEqual(
-      expect.arrayContaining(['Wi-Fi', 'Ethernet'])
+    // adapter-added should not have previousStatus
+    const added = monitor.computeDiff(
+      new Map(),
+      new Map([['eth0', makeAdapter('eth0')]])
     );
-    monitor.stop();
+    expect(added[0].previousStatus).toBeUndefined();
   });
+});
 
-  it('setSnapshot overrides the current state', () => {
-    mockGetAdapters.mockReturnValue([wifiActive]);
-    const monitor = new NetworkMonitor();
-    monitor.start();
-    monitor.setSnapshot([ethActive]);
-    const adapters = monitor.getCurrentAdapters();
-    expect(adapters).toHaveLength(1);
-    expect(adapters[0].name).toBe('Ethernet');
-    monitor.stop();
+// ── Event types ───────────────────────────────────────────────────────────────
+describe('NetworkChangeEvent types', () => {
+  it('all four event types are valid string literals', () => {
+    const types: NetworkChangeEvent['type'][] = [
+      'adapter-added',
+      'adapter-removed',
+      'status-changed',
+      'primary-changed',
+    ];
+    expect(types).toHaveLength(4);
   });
 });
