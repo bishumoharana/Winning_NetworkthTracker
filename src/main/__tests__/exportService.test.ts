@@ -7,7 +7,8 @@ import * as fs   from 'fs';
 import { _setDbForTest } from '../db/database';
 import { CREATE_NETWORK_METRICS } from '../db/schema';
 
-jest.mock('electron', () => ({ app: { getPath: () => os.tmpdir() } }));
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+jest.mock('electron', () => ({ app: { getPath: () => jest.requireActual<typeof import('os')>('os').tmpdir() } }));
 
 import {
   queryMetrics,

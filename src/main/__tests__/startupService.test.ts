@@ -22,9 +22,10 @@ jest.mock('electron', () => ({
 }));
 
 // Use a temp dir for the Linux desktop file
+// eslint-disable-next-line @typescript-eslint/no-require-imports
 jest.mock('os', () => ({
   ...jest.requireActual('os'),
-  homedir: () => path.join(os.tmpdir(), 'nt-test-home'),
+  homedir: () => require('path').join(require('os').tmpdir(), 'nt-test-home'),
 }));
 
 import {
@@ -46,12 +47,10 @@ beforeEach(() => {
   setupDb();
   jest.clearAllMocks();
   mockGetPath.mockReturnValue('/fake/exe');
-  // Default: login item OFF
   mockGetLoginItemSettings.mockReturnValue({ openAtLogin: false });
 });
 
 afterAll(() => {
-  // Cleanup any leftover temp dirs
   try { fs.rmSync(path.join(os.tmpdir(), 'nt-test-home'), { recursive: true, force: true }); } catch { /* ok */ }
 });
 
@@ -119,8 +118,8 @@ describe('setLoginItemEnabled — Linux', () => {
   });
 
   it('removes the .desktop file when disabled', () => {
-    setLoginItemEnabled(true);  // create first
-    setLoginItemEnabled(false); // then remove
+    setLoginItemEnabled(true);
+    setLoginItemEnabled(false);
     const desktopFile = path.join(os.tmpdir(), 'nt-test-home', '.config', 'autostart', 'network-tracker.desktop');
     expect(fs.existsSync(desktopFile)).toBe(false);
   });
@@ -149,7 +148,6 @@ describe('getStartupConfig', () => {
 
   it('returns false by default (key not yet written)', () => {
     mockGetLoginItemSettings.mockReturnValue({ openAtLogin: false });
-    // DB has no startup_enabled key from DEFAULT_CONFIG → falls back to OS
     expect(getStartupConfig()).toBe(false);
   });
 
