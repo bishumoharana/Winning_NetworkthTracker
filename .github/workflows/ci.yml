@@ -11,18 +11,21 @@ jobs:
     name: Test (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     strategy:
+      fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
 
       - name: Set up Node 20
         uses: actions/setup-node@v4
         with:
           node-version: '20'
-          # No cache: npm here — cache requires a lockfile (package-lock.json)
-          # which this repo does not commit. Omitting keeps installs clean.
+          # NOTE: cache: 'npm' is intentionally omitted.
+          # It requires a package-lock.json / yarn.lock to compute the cache key.
+          # This repo uses .npmrc with package-lock=false, so no lockfile is committed.
 
       - name: Install dependencies
         run: npm install
@@ -30,8 +33,13 @@ jobs:
       - name: Lint
         run: npm run lint --if-present
 
-      - name: Run tests with coverage
-        run: npm test -- --coverage --coverageReporters=lcov --coverageReporters=text-summary
+      - name: Run tests
+        run: npm test -- --forceExit --coverage --coverageReporters=lcov --coverageReporters=text-summary
+        env:
+          NODE_ENV: test
+          # Electron needs a display on Linux; DISPLAY is set by default on
+          # ubuntu-latest runners, but make it explicit for safety.
+          DISPLAY: ':99'
 
       - name: Upload coverage report
         if: matrix.os == 'ubuntu-latest'
