@@ -5,7 +5,6 @@
  * and live speed tooltip for Network Tracker.
  */
 import { app, BrowserWindow, Menu, MenuItem, Tray, nativeImage } from 'electron';
-import * as path from 'path';
 import { NetworkMetric } from '../../shared/types';
 import { getAlertConfig, saveAlertConfig } from '../alerts/alertsService';
 
@@ -94,7 +93,7 @@ export class TrayManager {
 
     // Use the first metric (primary adapter or only adapter)
     const m = metrics[0];
-    const tip = `Network Tracker\n${m.adapterName}\n↑ ${formatBps(m.speedUp)}/s  ↓ ${formatBps(m.speedDown)}/s`;
+    const tip = `Network Tracker\n${m.adapterName}\n\u2191 ${formatBps(m.speedUp)}/s  \u2193 ${formatBps(m.speedDown)}/s`;
     this.tray.setToolTip(tip);
   }
 

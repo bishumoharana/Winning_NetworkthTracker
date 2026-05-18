@@ -4,7 +4,8 @@
  * Queries stored metrics and serialises them to CSV or JSON,
  * writing the output file to the user's Downloads folder.
  */
-import * as fs from 'fs';
+import * as fs   from 'fs';
+import * as os   from 'os';
 import * as path from 'path';
 import { app } from 'electron';
 import { getDb } from '../db/database';
@@ -101,10 +102,10 @@ export function exportMetrics(opts: ExportOptions): ExportResult {
   const content  = opts.format === 'csv' ? formatCsv(rows) : formatJson(rows);
   const filename = buildFilename(opts.format);
 
-  // In tests app.getPath may not exist; fall back to /tmp
+  // In tests app.getPath may not exist; fall back to os.tmpdir()
   let downloadsDir: string;
   try   { downloadsDir = app.getPath('downloads'); }
-  catch { downloadsDir = require('os').tmpdir(); }
+  catch { downloadsDir = os.tmpdir(); }
 
   const filePath = path.join(downloadsDir, filename);
   fs.writeFileSync(filePath, content, 'utf8');
