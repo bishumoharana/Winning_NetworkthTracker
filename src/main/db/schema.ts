@@ -63,4 +63,8 @@ export const DEFAULT_CONFIG: Record<string, string> = {
   retentionDaysAggregated:      '90',
   alertsEnabled:                'false',
   launchOnStartup:              'false',
+  // ms-based keys read by readRetentionConfig
+  retention_raw_ms:             String(7  * 24 * 60 * 60 * 1000),
+  retention_aggregated_ms:      String(90 * 24 * 60 * 60 * 1000),
+  aggregation_window_ms:        String(2  * 60 * 60 * 1000),
 };

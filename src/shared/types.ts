@@ -43,15 +43,15 @@ export interface AppSettings {
 export type Theme = 'dark' | 'light';
 
 // Electron IPC channel names (type-safe constants)
+// Exactly 9 channels — do not add/remove without updating main.test.ts
 export const IPC_CHANNELS = {
-  GET_THEME: 'get-theme',
-  SET_THEME: 'set-theme',
-  GET_ADAPTERS: 'get-adapters',
-  NETWORK_CHANGE: 'network-change',
-  GET_METRICS: 'get-metrics',
-  GET_AGGREGATED: 'get-aggregated',
-  GET_SETTINGS: 'get-settings',
-  SET_SETTINGS: 'set-settings',
-  EXPORT_CSV: 'export-csv',
-  NETWORK_METRIC: 'network-metric',  // pushed every 1s by TrafficPoller
+  GET_THEME:     'get-theme',
+  SET_THEME:     'set-theme',
+  GET_ADAPTERS:  'get-adapters',
+  NETWORK_CHANGE:'network-change',
+  GET_METRICS:   'get-metrics',
+  GET_AGGREGATED:'get-aggregated',
+  GET_SETTINGS:  'get-settings',
+  SET_SETTINGS:  'set-settings',
+  EXPORT_CSV:    'export-csv',
 } as const;

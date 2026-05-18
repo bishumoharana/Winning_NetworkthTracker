@@ -10,7 +10,6 @@ export function inferAdapterType(
 ): NetworkAdapter['type'] {
   const n = name.toLowerCase();
 
-  // WiFi patterns
   if (
     n.includes('wi-fi') ||
     n.includes('wifi') ||
@@ -18,26 +17,25 @@ export function inferAdapterType(
     n.includes('wlan') ||
     n.includes('802.11') ||
     n.includes('airport') ||
-    /^wlp/.test(n) ||   // Linux: wlp2s0
-    /^wlan/.test(n)     // Linux: wlan0
+    /^wlp/.test(n) ||
+    /^wlan/.test(n)
   ) {
     return 'wifi';
   }
 
-  // Ethernet patterns
   if (
     n.includes('ethernet') ||
     n.includes('local area connection') ||
     n.includes('realtek') ||
     n.includes('intel(r) ethernet') ||
-    /^eth/.test(n) ||   // Linux: eth0
-    /^enp/.test(n) ||   // Linux: enp3s0
-    /^eno/.test(n)      // Linux: eno1
+    /^eth/.test(n) ||
+    /^enp/.test(n) ||
+    /^eno/.test(n) ||
+    /^en\d/.test(n)   // macOS: en0, en1
   ) {
     return 'ethernet';
   }
 
-  // Cellular patterns
   if (
     n.includes('cellular') ||
     n.includes('mobile') ||
@@ -45,7 +43,8 @@ export function inferAdapterType(
     n.includes('3g') ||
     n.includes('4g') ||
     n.includes('5g') ||
-    n.includes('wwan')
+    n.includes('wwan') ||
+    /^ppp/.test(n)    // ppp0 — cellular/dialup
   ) {
     return 'cellular';
   }
@@ -54,8 +53,13 @@ export function inferAdapterType(
 }
 
 /**
+ * Alias used by tests — same as inferAdapterType.
+ */
+export const detectAdapterType = inferAdapterType;
+
+/**
  * Determines adapter status based on whether it has assigned IP addresses.
- * active  = has at least one non-internal IPv4 address
+ * active  = has at least one non-internal, non-APIPA IPv4 address
  * standby = has IPv6 only, or only link-local addresses
  * inactive = no addresses at all
  */
@@ -78,32 +82,53 @@ export function inferAdapterStatus(
 }
 
 /**
+ * Returns true when the adapter has a usable (non-internal, non-APIPA,
+ * non-zero) IPv4 address — i.e. it is actively connected.
+ * This is the boolean form of inferAdapterStatus used by tests.
+ */
+export function isAdapterActive(ifaces: os.NetworkInterfaceInfo[]): boolean {
+  if (!ifaces || ifaces.length === 0) return false;
+  return ifaces.some(
+    (i) =>
+      i.family === 'IPv4' &&
+      !i.internal &&
+      i.address !== '0.0.0.0' &&
+      !i.address.startsWith('169.254.')
+  );
+}
+
+/**
  * Normalises a raw MAC address to lowercase xx:xx:xx:xx:xx:xx format.
- * Handles both colon-separated and hyphen-separated formats.
  */
 export function normalizeMac(mac: string): string {
   if (!mac || mac === '00:00:00:00:00:00') return mac;
-  return mac
-    .toLowerCase()
-    .replace(/-/g, ':')
-    .trim();
+  return mac.toLowerCase().replace(/-/g, ':').trim();
+}
+
+/**
+ * Formats a MAC address in uppercase XX:XX:XX:XX:XX:XX format.
+ * Used by tests as formatMac.
+ */
+export function formatMac(mac: string): string {
+  if (!mac) return '';
+  return mac.toUpperCase().replace(/-/g, ':').trim();
 }
 
 /**
  * Returns true for adapters that should be excluded from tracking:
- * loopback, virtual machines, VPN tunnels, Docker bridges, etc.
+ * loopback, VMs, VPN tunnels, Docker bridges, etc.
  */
 export function isVirtualAdapter(name: string): boolean {
   const n = name.toLowerCase();
   return (
     n === 'lo' ||
     n.startsWith('loopback') ||
+    n.includes('pseudo') ||
     n.includes('vmware') ||
     n.includes('virtualbox') ||
     n.includes('vethernet') ||
     n.includes('docker') ||
     n.includes('hyper-v') ||
-    n.includes('pseudo') ||
     n.includes('teredo') ||
     n.startsWith('tun') ||
     n.startsWith('tap') ||
@@ -114,8 +139,15 @@ export function isVirtualAdapter(name: string): boolean {
 }
 
 /**
+ * Returns true when the adapter is a physical (non-virtual) network interface.
+ * Inverse of isVirtualAdapter.
+ */
+export function isPhysicalAdapter(name: string): boolean {
+  return !isVirtualAdapter(name);
+}
+
+/**
  * Returns a numeric sort priority for a given adapter type.
- * Lower number = higher priority (ethernet is most reliable).
  */
 export function adapterTypePriority(type: NetworkAdapter['type']): number {
   switch (type) {
@@ -127,7 +159,7 @@ export function adapterTypePriority(type: NetworkAdapter['type']): number {
 }
 
 /**
- * Sorts adapters by: active first, then by type priority (ethernet > wifi > cellular > unknown).
+ * Sorts adapters: active first, then by type priority.
  */
 export function prioritizeAdapters(adapters: NetworkAdapter[]): NetworkAdapter[] {
   return [...adapters].sort((a, b) => {
