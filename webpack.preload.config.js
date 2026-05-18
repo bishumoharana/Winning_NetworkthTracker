@@ -2,8 +2,8 @@ const path = require('path');
 
 module.exports = {
   mode: process.env.NODE_ENV === 'production' ? 'production' : 'development',
-  entry: './src/main/main.ts',
-  target: 'electron-main',
+  entry: './src/preload.ts',
+  target: 'electron-preload',
   module: {
     rules: [
       {
@@ -18,22 +18,13 @@ module.exports = {
   },
   resolve: {
     extensions: ['.ts', '.tsx', '.js'],
-    alias: {
-      '@main':   path.resolve(__dirname, 'src/main'),
-      '@shared': path.resolve(__dirname, 'src/shared'),
-    },
   },
   output: {
-    filename: 'main.js',
+    filename: 'preload.js',
     path: path.resolve(__dirname, 'build/main'),
-    clean: true,
   },
-  // Don't bundle native node modules — electron-builder handles them
   externals: {
-    'better-sqlite3': 'commonjs better-sqlite3',
-    'electron':       'commonjs electron',
-    'electron-updater': 'commonjs electron-updater',
-    'electron-log':   'commonjs electron-log',
+    'electron': 'commonjs electron',
   },
   node: {
     __dirname:  false,

@@ -6,12 +6,12 @@ on:
       - 'v*.*.*'
 
 permissions:
-  contents: write   # needed to create GitHub Releases and upload assets
+  contents: write
 
 jobs:
-  # -------------------------------------------------------------------------
+  # ---------------------------------------------------------------------------
   # 1. Build on all 3 platforms in parallel
-  # -------------------------------------------------------------------------
+  # ---------------------------------------------------------------------------
   build:
     name: Build (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
@@ -37,27 +37,34 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '20'
-          cache: 'npm'
 
+      # Use npm install (no lockfile committed)
       - name: Install dependencies
-        run: npm ci
+        run: npm install
 
-      - name: Build main + renderer
-        run: npm run build:all
+      # Rebuild native modules (better-sqlite3) for the current Electron version
+      - name: Rebuild native modules
+        run: npx @electron/rebuild -f
 
+      # Install required Linux system libraries for electron-builder
+      - name: Install Linux packaging tools
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y rpm dpkg fakeroot
+
+      # build:all is embedded in dist:win/mac/linux via package.json
       - name: Package with electron-builder
         run: npm run ${{ matrix.build_cmd }}
         env:
+          NODE_ENV: production
           APPLE_ID:          ${{ secrets.APPLE_ID }}
           APPLE_ID_PASSWORD: ${{ secrets.APPLE_ID_PASSWORD }}
           APPLE_TEAM_ID:     ${{ secrets.APPLE_TEAM_ID }}
           CSC_LINK:          ${{ secrets.CSC_LINK }}
           CSC_KEY_PASSWORD:  ${{ secrets.CSC_KEY_PASSWORD }}
-          # Required by electron-builder publish
           GH_TOKEN:          ${{ secrets.GITHUB_TOKEN }}
 
-      # Upload every file in dist/ that users would download
-      # (excludes blockmap / yml metadata files used only by electron-updater)
       - name: Upload installers as artifact
         uses: actions/upload-artifact@v4
         with:
@@ -70,9 +77,9 @@ jobs:
             dist/*.AppImage
             dist/*.deb
 
-  # -------------------------------------------------------------------------
+  # ---------------------------------------------------------------------------
   # 2. Create GitHub Release and attach all installer files
-  # -------------------------------------------------------------------------
+  # ---------------------------------------------------------------------------
   release:
     name: Publish GitHub Release
     needs: build
@@ -82,7 +89,6 @@ jobs:
       - name: Checkout (for CHANGELOG)
         uses: actions/checkout@v4
 
-      # Download all 3 platform artifacts into separate folders
       - name: Download Windows artifacts
         uses: actions/download-artifact@v4
         with:
@@ -101,22 +107,18 @@ jobs:
           name: dist-linux
           path: release-assets/linux
 
-      # Extract the relevant section from CHANGELOG.md as the release body
       - name: Extract changelog for this version
         id: changelog
         shell: bash
         run: |
           TAG=${GITHUB_REF#refs/tags/}
           VERSION=${TAG#v}
-          # Grab lines between this version header and the next
           BODY=$(awk "/^## \[${VERSION}\]/,/^## \[/" CHANGELOG.md \
                  | head -n -1 | tail -n +2)
-          # GitHub Actions multiline output
           echo "body<<EOF" >> "$GITHUB_OUTPUT"
           echo "$BODY"     >> "$GITHUB_OUTPUT"
           echo "EOF"       >> "$GITHUB_OUTPUT"
 
-      # Detect if this is a pre-release (tag contains -beta, -rc, -alpha)
       - name: Detect pre-release
         id: prerelease
         shell: bash
