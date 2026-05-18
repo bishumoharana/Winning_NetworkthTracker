@@ -42,7 +42,7 @@ const AlertsSettings: React.FC = () => {
       await window.electronAPI?.saveAlertConfig(next);
       setConfig(next);
       setFeedback({ type: 'success', msg: 'Alert settings saved.' });
-    } catch (err) {
+    } catch (_err) {
       setFeedback({ type: 'error', msg: 'Failed to save settings.' });
     } finally {
       setSaving(false);
