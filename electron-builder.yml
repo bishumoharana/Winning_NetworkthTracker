@@ -16,6 +16,12 @@ files:
 extraMetadata:
   main: build/main/main.js
 
+publish:
+  provider: github
+  owner: bishumoharana
+  repo: Winning_NetworkthTracker
+  releaseType: release
+
 # ---------- Windows ----------
 win:
   target:

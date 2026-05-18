@@ -2,6 +2,7 @@ import { contextBridge, ipcRenderer } from 'electron';
 import { IPC_CHANNELS, NetworkMetric } from './shared/types';
 import { ExportOptions, ExportResult } from './main/export/exportService';
 import { Period, StatsRow, SummaryRow } from './main/stats/statsService';
+import { UpdateStatus } from './main/updater/updaterService';
 
 contextBridge.exposeInMainWorld('electronAPI', {
   // Network
@@ -14,7 +15,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   },
 
   // Alerts
-  getAlertConfig:  ()            => ipcRenderer.invoke('alerts:get-config'),
+  getAlertConfig:  ()             => ipcRenderer.invoke('alerts:get-config'),
   saveAlertConfig: (cfg: unknown) => ipcRenderer.invoke('alerts:save-config', cfg),
 
   // Export
@@ -33,6 +34,17 @@ contextBridge.exposeInMainWorld('electronAPI', {
   statsAPI: {
     get:        (period: Period, adapterId?: string) => ipcRenderer.invoke('stats:get', period, adapterId) as Promise<StatsRow[]>,
     getSummary: (period: Period)                     => ipcRenderer.invoke('stats:summary', period) as Promise<SummaryRow>,
+  },
+
+  // Updater
+  updaterAPI: {
+    check:    ()  => ipcRenderer.invoke('updater:check'),
+    install:  ()  => ipcRenderer.invoke('updater:install'),
+    onStatus: (cb: (status: UpdateStatus) => void) => {
+      const handler = (_: unknown, status: UpdateStatus) => cb(status);
+      ipcRenderer.on('updater:status', handler);
+      return () => ipcRenderer.removeListener('updater:status', handler);
+    },
   },
 
   // Theme

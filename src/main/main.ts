@@ -6,6 +6,8 @@ import { registerNetworkHandlers, startMonitoring, stopMonitoring } from './ipc/
 import { registerExportHandlers } from './ipc/exportHandlers';
 import { registerStartupHandlers } from './ipc/startupHandlers';
 import { registerStatsHandlers } from './ipc/statsHandlers';
+import { registerUpdaterHandlers } from './ipc/updaterHandlers';
+import { initAutoUpdater, checkForUpdatesThrottled } from './updater/updaterService';
 import { logAdapters } from './network/adapterDetector';
 import { trayManager } from './tray/trayManager';
 
@@ -39,6 +41,9 @@ function createWindow(): void {
     mainWindow?.show();
     startMonitoring();
     trayManager.init(mainWindow!);
+    initAutoUpdater(mainWindow!);
+    // Check for updates 5s after launch (non-blocking)
+    setTimeout(() => checkForUpdatesThrottled(), 5_000);
   });
 
   mainWindow.on('close', (event) => {
@@ -58,6 +63,7 @@ app.whenReady().then(() => {
   registerExportHandlers();
   registerStartupHandlers();
   registerStatsHandlers();
+  registerUpdaterHandlers();
   logAdapters();
   createWindow();
 
