@@ -1,5 +1,6 @@
 import { app, BrowserWindow, ipcMain, nativeTheme } from 'electron';
 import * as path from 'path';
+import { registerNetworkHandlers } from './ipc/networkHandlers';
 
 let mainWindow: BrowserWindow | null = null;
 
@@ -19,7 +20,6 @@ function createWindow(): void {
     backgroundColor: '#1a1a2e',
   });
 
-  // Load the renderer
   if (process.env.NODE_ENV === 'development') {
     mainWindow.loadURL('http://localhost:3000');
     mainWindow.webContents.openDevTools();
@@ -27,17 +27,14 @@ function createWindow(): void {
     mainWindow.loadFile(path.join(__dirname, '../renderer/index.html'));
   }
 
-  mainWindow.once('ready-to-show', () => {
-    mainWindow?.show();
-  });
-
-  mainWindow.on('closed', () => {
-    mainWindow = null;
-  });
+  mainWindow.once('ready-to-show', () => mainWindow?.show());
+  mainWindow.on('closed', () => { mainWindow = null; });
 }
 
-// App lifecycle
 app.whenReady().then(() => {
+  // Register all IPC handlers
+  registerNetworkHandlers();
+
   createWindow();
 
   app.on('activate', () => {
@@ -49,11 +46,10 @@ app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit();
 });
 
-// IPC: theme toggle
-ipcMain.handle('get-theme', () => {
-  return nativeTheme.shouldUseDarkColors ? 'dark' : 'light';
-});
-
+// Theme IPC
+ipcMain.handle('get-theme', () =>
+  nativeTheme.shouldUseDarkColors ? 'dark' : 'light'
+);
 ipcMain.handle('set-theme', (_event, theme: 'dark' | 'light' | 'system') => {
   nativeTheme.themeSource = theme;
   return nativeTheme.shouldUseDarkColors ? 'dark' : 'light';
