@@ -8,8 +8,8 @@ import {
   getStats,
   getSummary,
   getPeriodBounds,
-  Period,
 } from '../stats/statsService';
+import type { Period } from '../stats/statsService';
 
 // Fixed reference timestamp: 2026-05-18T12:00:00.000 local
 const REF = new Date(2026, 4, 18, 12, 0, 0, 0).getTime();
@@ -59,7 +59,7 @@ describe('getPeriodBounds', () => {
   });
 });
 
-// ── getStats ───────────────────────────────────────────────────────────────
+// ── getStats ─────────────────────────────────────────────────────────────────
 describe('getStats', () => {
   it('returns one row per adapter', () => {
     const rows = getStats('day');
@@ -106,21 +106,18 @@ describe('getStats', () => {
   });
 
   it('returns empty array when no data in period', () => {
-    // Use a far-future period where nothing was inserted
-    const futureRef = new Date(2099, 0, 1).getTime();
-    // Override getPeriodBounds isn't easy here; use 'month' with no data
-    // Instead, filter to an unknown adapter
+    // Filter to an unknown adapter
     const rows = getStats('day', 'nonexistent');
     expect(rows).toHaveLength(0);
   });
 
   it('attaches the period field to each row', () => {
-    const rows = getStats('week');
+    const rows = getStats('week') as Array<{ period: Period }>;
     rows.forEach(r => expect(r.period).toBe('week'));
   });
 });
 
-// ── getSummary ─────────────────────────────────────────────────────────────
+// ── getSummary ─────────────────────────────────────────────────────────────────
 describe('getSummary', () => {
   it('returns correct total bytes across all adapters', () => {
     const s = getSummary('day');

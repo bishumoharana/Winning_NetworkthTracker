@@ -3,7 +3,6 @@
  */
 import Database from 'better-sqlite3';
 import * as os   from 'os';
-import * as path from 'path';
 import * as fs   from 'fs';
 import { _setDbForTest } from '../db/database';
 import { CREATE_NETWORK_METRICS } from '../db/schema';
@@ -41,7 +40,7 @@ beforeEach(() => {
   _setDbForTest(mem);
 });
 
-// ── queryMetrics ─────────────────────────────────────────────────────────
+// ── queryMetrics ─────────────────────────────────────────────────────────────
 describe('queryMetrics', () => {
   it('returns all rows when no filter', () => {
     expect(queryMetrics({format:'csv'})).toHaveLength(3);
@@ -74,7 +73,7 @@ describe('queryMetrics', () => {
   });
 });
 
-// ── formatCsv ────────────────────────────────────────────────────────────
+// ── formatCsv ───────────────────────────────────────────────────────────────────
 describe('formatCsv', () => {
   it('includes header row', () => {
     const csv = formatCsv([]);
@@ -103,7 +102,7 @@ describe('formatCsv', () => {
   });
 });
 
-// ── formatJson ───────────────────────────────────────────────────────────
+// ── formatJson ───────────────────────────────────────────────────────────────────
 describe('formatJson', () => {
   it('produces valid JSON array', () => {
     const rows = queryMetrics({ format: 'json' });
@@ -125,7 +124,7 @@ describe('formatJson', () => {
   });
 });
 
-// ── exportMetrics (file write) ────────────────────────────────────────────
+// ── exportMetrics (file write) ────────────────────────────────────────────────
 describe('exportMetrics', () => {
   it('writes a CSV file and returns correct rowCount', () => {
     const res = exportMetrics({ format: 'csv' });
@@ -157,7 +156,7 @@ describe('exportMetrics', () => {
   });
 });
 
-// ── getExportAdapters ─────────────────────────────────────────────────────
+// ── getExportAdapters ─────────────────────────────────────────────────────────────
 describe('getExportAdapters', () => {
   it('returns distinct adapters', () => {
     const adapters = getExportAdapters();
