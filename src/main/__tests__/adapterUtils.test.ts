@@ -64,6 +64,11 @@ describe('detectAdapterType', () => {
 // isAdapterActive
 // ---------------------------------------------------------------------------
 describe('isAdapterActive', () => {
+  // os.NetworkInterfaceInfo is a discriminated union (IPv4Info | IPv6Info).
+  // Spreading Partial<NetworkInterfaceInfo> into an object literal gives
+  // type '{ family: "IPv4" | "IPv6"; ... }' which is not assignable to
+  // either branch of the union (TS2322).  Casting as NetworkInterfaceInfo
+  // keeps the runtime shape correct while satisfying the compiler.
   const makeAddr = (overrides: Partial<NetworkInterfaceInfo>): NetworkInterfaceInfo => ({
     address: '192.168.1.100',
     netmask: '255.255.255.0',
@@ -72,7 +77,7 @@ describe('isAdapterActive', () => {
     internal: false,
     cidr: '192.168.1.100/24',
     ...overrides,
-  });
+  } as NetworkInterfaceInfo);
 
   it('returns true for normal IPv4 address', () => {
     expect(isAdapterActive([makeAddr({})])).toBe(true);

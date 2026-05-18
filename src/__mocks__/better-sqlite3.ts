@@ -36,7 +36,9 @@
 // ── Stub definition (used when the real binary is not usable) ─────────────
 
 const makeStmt = () => ({
-  run:   jest.fn().mockReturnValue({ changes: 1, lastInsertRowid: 1 }),
+  // Default changes:0 so that "returns 0 when nothing to delete" tests pass.
+  // Tests that need changes:1 call .mockReturnValueOnce({ changes: 1, ... }).
+  run:   jest.fn().mockReturnValue({ changes: 0, lastInsertRowid: 0 }),
   get:   jest.fn().mockReturnValue(undefined),
   all:   jest.fn().mockReturnValue([]),
   pluck: jest.fn().mockReturnThis(),
@@ -48,7 +50,16 @@ class DatabaseStub {
   exec        = jest.fn();
   close       = jest.fn();
   prepare     = jest.fn().mockImplementation(() => makeStmt());
-  transaction = jest.fn().mockImplementation((fn: (...args: any[]) => any) => fn);
+  // better-sqlite3's transaction(fn) returns a NEW function that, when
+  // called with arguments, executes fn(...args) synchronously inside a
+  // transaction.  The stub must mirror this so that code like:
+  //   const insert = db.transaction((rows) => { ... });
+  //   insert(batch);
+  // actually invokes the inner function.
+  transaction = jest.fn().mockImplementation(
+    (fn: (...args: any[]) => any) =>
+      (...args: any[]) => fn(...args),
+  );
 }
 
 // Export stub as both default and named so:

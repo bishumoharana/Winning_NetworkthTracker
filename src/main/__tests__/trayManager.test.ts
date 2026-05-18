@@ -7,31 +7,60 @@ import { _setDbForTest } from '../db/database';
 import { CREATE_APP_CONFIG, DEFAULT_CONFIG } from '../db/schema';
 import { NetworkMetric } from '../../shared/types';
 
-// ── Mocks ────────────────────────────────────────────────────────────
-const mockSetToolTip   = jest.fn();
-const mockSetTitle     = jest.fn();
-const mockSetContextMenu = jest.fn();
-const mockOn           = jest.fn();
-const mockDestroy      = jest.fn();
-const mockMenuBuild    = jest.fn().mockReturnValue({});
-const mockIsVisible    = jest.fn().mockReturnValue(true);
-const mockShow         = jest.fn();
-const mockFocus        = jest.fn();
-const mockIsMinimized  = jest.fn().mockReturnValue(false);
-const mockRestore      = jest.fn();
-const mockHide         = jest.fn();
+// ── Mock function declarations ────────────────────────────────────────────
+// IMPORTANT: jest.mock() calls are hoisted to the TOP of the file by ts-jest
+// before any `const`/`let` declarations in source order are initialised.
+// Any variable referenced inside a jest.mock() factory MUST therefore be
+// declared with `let` at module scope (not `const`) so it exists in the
+// scope chain when the hoisted factory runs — otherwise the Temporal Dead
+// Zone (TDZ) causes "Cannot access '...' before initialization".
+let mockSetToolTip:    jest.Mock;
+let mockSetTitle:      jest.Mock;
+let mockSetContextMenu: jest.Mock;
+let mockOn:            jest.Mock;
+let mockDestroy:       jest.Mock;
+let mockMenuBuild:     jest.Mock;
+let mockIsVisible:     jest.Mock;
+let mockShow:          jest.Mock;
+let mockFocus:         jest.Mock;
+let mockIsMinimized:   jest.Mock;
+let mockRestore:       jest.Mock;
+let mockHide:          jest.Mock;
+
+// Initialise them before the mock factory runs (module evaluation order).
+// jest.mock() is hoisted but the factory body is evaluated lazily the first
+// time the module is required, so by then these are already assigned.
+mockSetToolTip     = jest.fn();
+mockSetTitle       = jest.fn();
+mockSetContextMenu = jest.fn();
+mockOn             = jest.fn();
+mockDestroy        = jest.fn();
+mockMenuBuild      = jest.fn().mockReturnValue({});
+mockIsVisible      = jest.fn().mockReturnValue(true);
+mockShow           = jest.fn();
+mockFocus          = jest.fn();
+mockIsMinimized    = jest.fn().mockReturnValue(false);
+mockRestore        = jest.fn();
+mockHide           = jest.fn();
 
 jest.mock('electron', () => ({
   app:         { quit: jest.fn() },
-  BrowserWindow: class { isVisible = mockIsVisible; show = mockShow; focus = mockFocus; isMinimized = mockIsMinimized; restore = mockRestore; hide = mockHide; },
+  BrowserWindow: class {
+    isVisible   = mockIsVisible;
+    show        = mockShow;
+    focus       = mockFocus;
+    isMinimized = mockIsMinimized;
+    restore     = mockRestore;
+    hide        = mockHide;
+  },
   Menu:        { buildFromTemplate: mockMenuBuild },
   MenuItem:    class {},
   Tray:        class {
-    setToolTip    = mockSetToolTip;
-    setTitle      = mockSetTitle;
+    setToolTip     = mockSetToolTip;
+    setTitle       = mockSetTitle;
     setContextMenu = mockSetContextMenu;
-    on            = mockOn;
-    destroy       = mockDestroy;
+    on             = mockOn;
+    destroy        = mockDestroy;
   },
   nativeImage: { createEmpty: () => ({}) },
 }));
