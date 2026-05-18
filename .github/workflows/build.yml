@@ -1,13 +1,19 @@
-name: Package — Electron Builder
+name: Build & Release
 
 on:
   push:
     tags:
       - 'v*.*.*'
 
+permissions:
+  contents: write   # needed to create GitHub Releases and upload assets
+
 jobs:
-  package:
-    name: Package (${{ matrix.os }})
+  # -------------------------------------------------------------------------
+  # 1. Build on all 3 platforms in parallel
+  # -------------------------------------------------------------------------
+  build:
+    name: Build (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -24,7 +30,8 @@ jobs:
             artifact_name: dist-linux
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
 
       - name: Set up Node 20
         uses: actions/setup-node@v4
@@ -41,17 +48,98 @@ jobs:
       - name: Package with electron-builder
         run: npm run ${{ matrix.build_cmd }}
         env:
-          # macOS notarization (optional — set in repo secrets)
-          APPLE_ID:           ${{ secrets.APPLE_ID }}
-          APPLE_ID_PASSWORD:  ${{ secrets.APPLE_ID_PASSWORD }}
-          APPLE_TEAM_ID:      ${{ secrets.APPLE_TEAM_ID }}
-          # Windows code signing (optional)
-          CSC_LINK:           ${{ secrets.CSC_LINK }}
-          CSC_KEY_PASSWORD:   ${{ secrets.CSC_KEY_PASSWORD }}
+          APPLE_ID:          ${{ secrets.APPLE_ID }}
+          APPLE_ID_PASSWORD: ${{ secrets.APPLE_ID_PASSWORD }}
+          APPLE_TEAM_ID:     ${{ secrets.APPLE_TEAM_ID }}
+          CSC_LINK:          ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD:  ${{ secrets.CSC_KEY_PASSWORD }}
+          # Required by electron-builder publish
+          GH_TOKEN:          ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Upload distributable
+      # Upload every file in dist/ that users would download
+      # (excludes blockmap / yml metadata files used only by electron-updater)
+      - name: Upload installers as artifact
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact_name }}
-          path: dist/
-          retention-days: 30
+          retention-days: 7
+          path: |
+            dist/*.exe
+            dist/*.dmg
+            dist/*.zip
+            dist/*.AppImage
+            dist/*.deb
+
+  # -------------------------------------------------------------------------
+  # 2. Create GitHub Release and attach all installer files
+  # -------------------------------------------------------------------------
+  release:
+    name: Publish GitHub Release
+    needs: build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout (for CHANGELOG)
+        uses: actions/checkout@v4
+
+      # Download all 3 platform artifacts into separate folders
+      - name: Download Windows artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: dist-windows
+          path: release-assets/windows
+
+      - name: Download macOS artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: dist-macos
+          path: release-assets/macos
+
+      - name: Download Linux artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: dist-linux
+          path: release-assets/linux
+
+      # Extract the relevant section from CHANGELOG.md as the release body
+      - name: Extract changelog for this version
+        id: changelog
+        shell: bash
+        run: |
+          TAG=${GITHUB_REF#refs/tags/}
+          VERSION=${TAG#v}
+          # Grab lines between this version header and the next
+          BODY=$(awk "/^## \[${VERSION}\]/,/^## \[/" CHANGELOG.md \
+                 | head -n -1 | tail -n +2)
+          # GitHub Actions multiline output
+          echo "body<<EOF" >> "$GITHUB_OUTPUT"
+          echo "$BODY"     >> "$GITHUB_OUTPUT"
+          echo "EOF"       >> "$GITHUB_OUTPUT"
+
+      # Detect if this is a pre-release (tag contains -beta, -rc, -alpha)
+      - name: Detect pre-release
+        id: prerelease
+        shell: bash
+        run: |
+          TAG=${GITHUB_REF#refs/tags/}
+          if [[ "$TAG" =~ -(beta|rc|alpha) ]]; then
+            echo "value=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "value=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Create GitHub Release and upload assets
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name:   ${{ github.ref_name }}
+          name:       Network Tracker ${{ github.ref_name }}
+          body:       ${{ steps.changelog.outputs.body }}
+          draft:      false
+          prerelease: ${{ steps.prerelease.outputs.value }}
+          fail_on_unmatched_files: false
+          files: |
+            release-assets/windows/*
+            release-assets/macos/*
+            release-assets/linux/*
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
