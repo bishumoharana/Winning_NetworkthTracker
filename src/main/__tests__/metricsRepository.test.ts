@@ -2,7 +2,8 @@
  * Unit tests for Task 2.2 — SQLite Persistence Layer
  * Uses an in-memory SQLite database for full isolation.
  */
-import Database from 'better-sqlite3';
+import * as BetterSqlite3 from 'better-sqlite3';
+const Database = (BetterSqlite3 as any).default ?? BetterSqlite3;
 import { _setDbForTest } from '../db/database';
 import {
   insertMetric,
