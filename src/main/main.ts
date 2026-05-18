@@ -1,6 +1,6 @@
 import { app, BrowserWindow, ipcMain, nativeTheme } from 'electron';
 import * as path from 'path';
-import { registerNetworkHandlers } from './ipc/networkHandlers';
+import { registerNetworkHandlers, startMonitoring, stopMonitoring } from './ipc/networkHandlers';
 
 let mainWindow: BrowserWindow | null = null;
 
@@ -32,10 +32,10 @@ function createWindow(): void {
 }
 
 app.whenReady().then(() => {
-  // Register all IPC handlers
   registerNetworkHandlers();
-
   createWindow();
+  // Start real-time monitoring after window is ready
+  startMonitoring();
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
@@ -43,6 +43,7 @@ app.whenReady().then(() => {
 });
 
 app.on('window-all-closed', () => {
+  stopMonitoring();
   if (process.platform !== 'darwin') app.quit();
 });
 
