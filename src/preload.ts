@@ -13,16 +13,22 @@ contextBridge.exposeInMainWorld('electronAPI', {
   },
 
   // Alerts
-  getAlertConfig:  ()      => ipcRenderer.invoke('alerts:get-config'),
+  getAlertConfig:  ()           => ipcRenderer.invoke('alerts:get-config'),
   saveAlertConfig: (cfg: unknown) => ipcRenderer.invoke('alerts:save-config', cfg),
 
   // Export
   exportAPI: {
-    run:         (opts: ExportOptions)  => ipcRenderer.invoke('export:run', opts) as Promise<ExportResult>,
-    getAdapters: ()                     => ipcRenderer.invoke('export:get-adapters') as Promise<{ adapterId: string; adapterName: string }[]>,
+    run:         (opts: ExportOptions) => ipcRenderer.invoke('export:run', opts) as Promise<ExportResult>,
+    getAdapters: ()                    => ipcRenderer.invoke('export:get-adapters') as Promise<{ adapterId: string; adapterName: string }[]>,
+  },
+
+  // Startup
+  startupAPI: {
+    get: ()                  => ipcRenderer.invoke('startup:get') as Promise<boolean>,
+    set: (enabled: boolean)  => ipcRenderer.invoke('startup:set', enabled) as Promise<boolean>,
   },
 
   // Theme
-  getTheme: ()                          => ipcRenderer.invoke(IPC_CHANNELS.GET_THEME),
+  getTheme: ()                               => ipcRenderer.invoke(IPC_CHANNELS.GET_THEME),
   setTheme: (theme: 'dark'|'light'|'system') => ipcRenderer.invoke(IPC_CHANNELS.SET_THEME, theme),
 });

@@ -4,6 +4,7 @@ import { IPC_CHANNELS } from '../shared/types';
 import { initDatabase, closeDatabase } from './db/database';
 import { registerNetworkHandlers, startMonitoring, stopMonitoring } from './ipc/networkHandlers';
 import { registerExportHandlers } from './ipc/exportHandlers';
+import { registerStartupHandlers } from './ipc/startupHandlers';
 import { logAdapters } from './network/adapterDetector';
 import { trayManager } from './tray/trayManager';
 
@@ -54,6 +55,7 @@ app.whenReady().then(() => {
   initDatabase();
   registerNetworkHandlers();
   registerExportHandlers();
+  registerStartupHandlers();
   logAdapters();
   createWindow();
 
