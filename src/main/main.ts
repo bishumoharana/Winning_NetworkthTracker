@@ -3,15 +3,11 @@ import * as path from 'path';
 import { IPC_CHANNELS } from '../shared/types';
 import { initDatabase, closeDatabase } from './db/database';
 import { registerNetworkHandlers, startMonitoring, stopMonitoring } from './ipc/networkHandlers';
+import { registerExportHandlers } from './ipc/exportHandlers';
 import { logAdapters } from './network/adapterDetector';
 import { trayManager } from './tray/trayManager';
 
 let mainWindow: BrowserWindow | null = null;
-
-/**
- * When true, the app is quitting for real (e.g. via tray Quit or Cmd+Q).
- * When false, window close hides the window instead of quitting.
- */
 let forceQuit = false;
 
 function createWindow(): void {
@@ -40,16 +36,13 @@ function createWindow(): void {
   mainWindow.once('ready-to-show', () => {
     mainWindow?.show();
     startMonitoring();
-    // Init tray after window is visible
     trayManager.init(mainWindow!);
   });
 
-  // Intercept close: hide to tray instead of quitting
   mainWindow.on('close', (event) => {
     if (!forceQuit) {
       event.preventDefault();
       mainWindow?.hide();
-      // Rebuild menu so label toggles to 'Show Window'
       trayManager.buildMenu();
     }
   });
@@ -60,6 +53,7 @@ function createWindow(): void {
 app.whenReady().then(() => {
   initDatabase();
   registerNetworkHandlers();
+  registerExportHandlers();
   logAdapters();
   createWindow();
 
@@ -69,7 +63,6 @@ app.whenReady().then(() => {
   });
 });
 
-// Set forceQuit flag so the 'close' handler lets the window actually close
 app.on('before-quit', () => { forceQuit = true; });
 
 app.on('will-quit', () => {
@@ -82,7 +75,6 @@ app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit();
 });
 
-// Theme IPC
 ipcMain.handle(IPC_CHANNELS.GET_THEME, () =>
   nativeTheme.shouldUseDarkColors ? 'dark' : 'light'
 );
