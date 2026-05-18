@@ -21,10 +21,11 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '20'
-          cache: 'npm'
+          # No cache: npm here — cache requires a lockfile (package-lock.json)
+          # which this repo does not commit. Omitting keeps installs clean.
 
       - name: Install dependencies
-        run: npm ci
+        run: npm install
 
       - name: Lint
         run: npm run lint --if-present
