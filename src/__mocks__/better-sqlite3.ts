@@ -8,9 +8,23 @@
  *
  * Strategy:
  *   - Try jest.requireActual('better-sqlite3') — works when the binary has
- *     been rebuilt for the current Node ABI (local dev after @electron/rebuild).
+ *     been rebuilt for the current Node ABI (local dev after @electron/rebuild,
+ *     or CI after the rebuild step succeeds).
  *   - Fall back to an in-memory stub for CI where only the Electron ABI binary
  *     is present.
+ *
+ * ESM-interop fix:
+ *   With esModuleInterop:true, ts-jest compiles
+ *     import Database from 'better-sqlite3'
+ *   into
+ *     const Database = better_sqlite3_1.default
+ *
+ *   The real better-sqlite3 CJS module exports the constructor as
+ *   module.exports = Database (no .default property), so .default is
+ *   undefined and `new Database()` throws "is not a constructor".
+ *
+ *   Fix: after requireActual, if .default is not already set, assign it
+ *   so both import styles resolve to the constructor.
  */
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -23,6 +37,11 @@ try {
 }
 
 if (RealDatabase) {
+  // Patch .default so esModuleInterop `import Database from 'better-sqlite3'`
+  // resolves correctly.  The check avoids double-patching if already present.
+  if (!RealDatabase.default) {
+    RealDatabase.default = RealDatabase;
+  }
   module.exports = RealDatabase;
 } else {
   // ── Stub used in CI ────────────────────────────────────────────────────

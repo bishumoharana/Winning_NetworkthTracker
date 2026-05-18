@@ -4,12 +4,31 @@ import { NetworkAdapter } from '../../shared/types';
 /**
  * Infers the network adapter type from its name.
  * Uses common name patterns across Windows, macOS, and Linux.
+ *
+ * IMPORTANT: Virtual/WSL/Hyper-V adapters whose names contain 'ethernet'
+ * as a substring (e.g. 'vEthernet (WSL)') must be excluded BEFORE the
+ * generic ethernet check, otherwise they incorrectly return 'ethernet'.
+ * The caller should also run isVirtualAdapter() separately; this function
+ * returns 'unknown' for anything that looks virtual.
  */
 export function inferAdapterType(
   name: string
 ): NetworkAdapter['type'] {
   const n = name.toLowerCase();
 
+  // ── Virtual / WSL / Hyper-V guard (must come first) ─────────────────
+  // Names like 'vEthernet (WSL)', 'veth0', 'Hyper-V Virtual Ethernet Adapter'
+  // contain 'ethernet' as a substring but are NOT real ethernet adapters.
+  if (
+    n.startsWith('vethernet') ||
+    n.startsWith('veth') ||
+    n.includes('hyper-v') ||
+    n.includes('virtual ethernet')
+  ) {
+    return 'unknown';
+  }
+
+  // ── Wi-Fi ─────────────────────────────────────────────────────────────
   if (
     n.includes('wi-fi') ||
     n.includes('wifi') ||
@@ -23,6 +42,7 @@ export function inferAdapterType(
     return 'wifi';
   }
 
+  // ── Ethernet ──────────────────────────────────────────────────────────
   if (
     n.includes('ethernet') ||
     n.includes('local area connection') ||
@@ -36,6 +56,7 @@ export function inferAdapterType(
     return 'ethernet';
   }
 
+  // ── Cellular ──────────────────────────────────────────────────────────
   if (
     n.includes('cellular') ||
     n.includes('mobile') ||
