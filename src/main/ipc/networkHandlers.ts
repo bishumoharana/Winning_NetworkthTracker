@@ -6,18 +6,19 @@ import {
   getPrimaryAdapter,
 } from '../network/adapterDetector';
 import { networkMonitor } from '../network/networkMonitor';
+import { trafficPoller } from '../network/trafficPoller';
 
 /**
  * Registers all network-related IPC handlers.
- * Call once during app initialization.
+ * Call once during app initialization, before creating the window.
  */
 export function registerNetworkHandlers(): void {
-  // Return all adapters (point-in-time)
+  // --- Adapter queries ---
   ipcMain.handle(IPC_CHANNELS.GET_ADAPTERS, () => getNetworkAdapters());
   ipcMain.handle('get-active-adapters', () => getActiveAdapters());
   ipcMain.handle('get-primary-adapter', () => getPrimaryAdapter());
 
-  // Real-time monitor control
+  // --- Real-time monitor control ---
   ipcMain.handle('start-network-monitor', () => {
     networkMonitor.start();
     return { started: true };
@@ -32,18 +33,19 @@ export function registerNetworkHandlers(): void {
     isRunning: networkMonitor.isRunning,
     adapters: networkMonitor.getCurrentAdapters(),
   }));
+
+  // --- Traffic metrics (Task 2.1) ---
+  ipcMain.handle('get-latest-metrics', () => trafficPoller.getLatestMetrics());
 }
 
-/**
- * Starts the network monitor. Call after window is created.
- */
+/** Starts both the adapter monitor and the traffic poller. */
 export function startMonitoring(): void {
   networkMonitor.start();
+  trafficPoller.start();
 }
 
-/**
- * Stops the monitor on app quit.
- */
+/** Stops both cleanly on app quit. */
 export function stopMonitoring(): void {
   networkMonitor.stop();
+  trafficPoller.stop();
 }

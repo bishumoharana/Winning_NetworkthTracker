@@ -53,4 +53,5 @@ export const IPC_CHANNELS = {
   GET_SETTINGS: 'get-settings',
   SET_SETTINGS: 'set-settings',
   EXPORT_CSV: 'export-csv',
+  NETWORK_METRIC: 'network-metric',  // pushed every 1s by TrafficPoller
 } as const;

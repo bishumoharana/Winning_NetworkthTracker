@@ -1,36 +1,35 @@
 import { contextBridge, ipcRenderer } from 'electron';
-import { NetworkAdapter, IPC_CHANNELS } from '../shared/types';
-import { NetworkChangeEvent } from './network/networkMonitor';
+import { NetworkAdapter, NetworkMetric, IPC_CHANNELS } from '../shared/types';
 
+// Expose safe APIs to renderer process via window.electronAPI
 contextBridge.exposeInMainWorld('electronAPI', {
-  // ── Theme ──────────────────────────────────────────────────────────────
+  // Theme
   getTheme: (): Promise<string> =>
     ipcRenderer.invoke(IPC_CHANNELS.GET_THEME),
   setTheme: (theme: 'dark' | 'light' | 'system'): Promise<string> =>
     ipcRenderer.invoke(IPC_CHANNELS.SET_THEME, theme),
 
-  // ── Adapter detection (Task 1.2) ────────────────────────────────────────
+  // Adapter detection (Task 1.2)
   getAdapters: (): Promise<NetworkAdapter[]> =>
     ipcRenderer.invoke(IPC_CHANNELS.GET_ADAPTERS),
-  getActiveAdapters: (): Promise<NetworkAdapter[]> =>
-    ipcRenderer.invoke('get-active-adapters'),
   getPrimaryAdapter: (): Promise<NetworkAdapter | null> =>
     ipcRenderer.invoke('get-primary-adapter'),
 
-  // ── Real-time monitoring (Task 1.3) ─────────────────────────────────────
-  startMonitor: (): Promise<{ started: boolean }> =>
-    ipcRenderer.invoke('start-network-monitor'),
-  stopMonitor: (): Promise<{ stopped: boolean }> =>
-    ipcRenderer.invoke('stop-network-monitor'),
-  getMonitorStatus: (): Promise<{ isRunning: boolean; adapters: NetworkAdapter[] }> =>
-    ipcRenderer.invoke('get-monitor-status'),
-
-  onNetworkChange: (callback: (events: NetworkChangeEvent[]) => void): void => {
-    ipcRenderer.on(IPC_CHANNELS.NETWORK_CHANGE, (_event, data: NetworkChangeEvent[]) =>
-      callback(data)
-    );
+  // Real-time adapter change events (Task 1.3)
+  onNetworkChange: (callback: (adapters: NetworkAdapter[]) => void) => {
+    ipcRenderer.on(IPC_CHANNELS.NETWORK_CHANGE, (_event, data) => callback(data));
   },
-  removeNetworkListeners: (): void => {
+  removeNetworkListeners: () => {
     ipcRenderer.removeAllListeners(IPC_CHANNELS.NETWORK_CHANGE);
+  },
+
+  // Live traffic metrics (Task 2.1)
+  getLatestMetrics: (): Promise<NetworkMetric[]> =>
+    ipcRenderer.invoke('get-latest-metrics'),
+  onNetworkMetric: (callback: (metrics: NetworkMetric[]) => void) => {
+    ipcRenderer.on(IPC_CHANNELS.NETWORK_METRIC, (_event, data) => callback(data));
+  },
+  removeMetricListeners: () => {
+    ipcRenderer.removeAllListeners(IPC_CHANNELS.NETWORK_METRIC);
   },
 });
