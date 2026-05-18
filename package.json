@@ -1,39 +1,40 @@
 {
-  "name": "winning-network-tracker",
+  "name": "network-tracker",
   "version": "0.1.0",
-  "description": "Electron app to monitor network adapters and traffic in real-time",
+  "description": "Real-time network traffic monitor built with Electron",
   "main": "build/main/main.js",
+  "author": "Network Tracker",
+  "license": "MIT",
   "scripts": {
     "start": "electron .",
-    "dev": "concurrently \"npm run watch:main\" \"npm run watch:renderer\" \"wait-on build/main/main.js && electron .\"",
-    "watch:main": "webpack --config webpack.main.config.js --watch",
-    "watch:renderer": "webpack --config webpack.renderer.config.js --watch",
-    "build:main": "webpack --config webpack.main.config.js",
-    "build:renderer": "webpack --config webpack.renderer.config.js",
-    "build": "npm run build:main && npm run build:renderer",
-    "dist": "npm run build && electron-builder",
+    "dev": "concurrently \"npm run dev:renderer\" \"wait-on http://localhost:3000 && electron . --inspect=5858\"",
+    "dev:renderer": "webpack serve --config webpack.renderer.config.js --mode development",
+    "build:main": "tsc --project tsconfig.main.json",
+    "build:renderer": "webpack --config webpack.renderer.config.js --mode production",
+    "build:all": "npm run build:main && npm run build:renderer",
+    "dist": "npm run build:all && electron-builder",
+    "dist:win": "electron-builder --win",
+    "dist:mac": "electron-builder --mac",
+    "dist:linux": "electron-builder --linux",
     "test": "jest",
     "lint": "eslint src --ext .ts,.tsx"
   },
   "dependencies": {
-    "electron-updater": "^6.1.7",
-    "react": "^18.2.0",
-    "react-dom": "^18.2.0",
-    "recharts": "^2.10.3",
-    "systeminformation": "^5.22.7",
-    "better-sqlite3": "^9.4.3"
+    "better-sqlite3": "^9.4.3",
+    "electron-updater": "^6.1.7"
   },
   "devDependencies": {
+    "@electron/notarize": "^2.3.0",
     "@types/better-sqlite3": "^7.6.8",
     "@types/jest": "^29.5.12",
     "@types/node": "^20.11.5",
     "@types/react": "^18.2.48",
     "@types/react-dom": "^18.2.18",
-    "@typescript-eslint/eslint-plugin": "^7.0.1",
-    "@typescript-eslint/parser": "^7.0.1",
+    "@typescript-eslint/eslint-plugin": "^6.19.0",
+    "@typescript-eslint/parser": "^6.19.0",
     "concurrently": "^8.2.2",
-    "css-loader": "^6.10.0",
-    "electron": "^28.2.0",
+    "css-loader": "^6.9.1",
+    "electron": "^29.1.0",
     "electron-builder": "^24.9.1",
     "eslint": "^8.56.0",
     "html-webpack-plugin": "^5.6.0",
@@ -43,16 +44,11 @@
     "ts-loader": "^9.5.1",
     "typescript": "^5.3.3",
     "wait-on": "^7.2.0",
-    "webpack": "^5.90.0",
-    "webpack-cli": "^5.1.4"
+    "webpack": "^5.90.1",
+    "webpack-cli": "^5.1.4",
+    "webpack-dev-server": "^4.15.1"
   },
   "build": {
-    "appId": "com.bishumoharana.networktracker",
-    "productName": "Network Tracker",
-    "directories": { "output": "dist" },
-    "files": ["build/**/*", "node_modules/**/*"],
-    "win": { "target": "nsis" },
-    "mac": { "target": "dmg" },
-    "linux": { "target": "AppImage" }
+    "extends": "./electron-builder.yml"
   }
 }
