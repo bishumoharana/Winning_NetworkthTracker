@@ -3,10 +3,11 @@ import { NetworkAdapter, NetworkMetric } from '../shared/types';
 import { formatSpeed } from '../main/network/trafficCapture';
 import SpeedChart from './components/SpeedChart';
 import ChartControls, { TimeRange } from './components/ChartControls';
+import AlertsSettings from './components/AlertsSettings';
 import { useHistoricalMetrics } from './hooks/useHistoricalMetrics';
 
 type Theme = 'dark' | 'light';
-type Tab   = 'dashboard' | 'charts';
+type Tab   = 'dashboard' | 'charts' | 'alerts';
 
 const adapterTypeIcon: Record<NetworkAdapter['type'], string> = {
   ethernet: '🔌',
@@ -25,56 +26,26 @@ const statusColor: Record<NetworkAdapter['status'], string> = {
 const ChartsTab: React.FC<{ adapters: NetworkAdapter[] }> = ({ adapters }) => {
   const [timeRange,     setTimeRange]     = useState<TimeRange>('1h');
   const [activeAdapter, setActiveAdapter] = useState<string>('');
-
   const adapterNames = adapters.map((a) => a.name);
   const { chartData, loading, error, refresh } = useHistoricalMetrics(timeRange, activeAdapter);
-
   const rangeLabels: Record<TimeRange, string> = {
-    '1h':  'Last 1 Hour',
-    '6h':  'Last 6 Hours',
-    '24h': 'Last 24 Hours',
-    '7d':  'Last 7 Days',
+    '1h': 'Last 1 Hour', '6h': 'Last 6 Hours',
+    '24h': 'Last 24 Hours', '7d': 'Last 7 Days',
   };
-
   return (
     <section className="charts-panel">
       <div className="charts-header">
         <h2 className="section-title">Speed History</h2>
-        <button className="refresh-btn" onClick={refresh} title="Refresh chart data">
-          ↻ Refresh
-        </button>
+        <button className="refresh-btn" onClick={refresh}>↻ Refresh</button>
       </div>
-
       <ChartControls
-        timeRange={timeRange}
-        onTimeRange={setTimeRange}
-        adapters={adapterNames}
-        activeAdapter={activeAdapter}
-        onAdapter={setActiveAdapter}
+        timeRange={timeRange} onTimeRange={setTimeRange}
+        adapters={adapterNames} activeAdapter={activeAdapter} onAdapter={setActiveAdapter}
       />
-
       <div className="chart-wrapper">
-        {loading && (
-          <div className="chart-loading">
-            <div className="chart-spinner" />
-            <p>Loading chart data…</p>
-          </div>
-        )}
-
-        {!loading && error && (
-          <div className="chart-error">
-            <span>⚠️ {error}</span>
-            <button onClick={refresh}>Retry</button>
-          </div>
-        )}
-
-        {!loading && !error && (
-          <SpeedChart
-            data={chartData}
-            adapterName={activeAdapter || 'All Adapters'}
-            rangeLabel={rangeLabels[timeRange]}
-          />
-        )}
+        {loading && <div className="chart-loading"><div className="chart-spinner" /><p>Loading…</p></div>}
+        {!loading && error && <div className="chart-error"><span>⚠️ {error}</span><button onClick={refresh}>Retry</button></div>}
+        {!loading && !error && <SpeedChart data={chartData} adapterName={activeAdapter || 'All Adapters'} rangeLabel={rangeLabels[timeRange]} />}
       </div>
     </section>
   );
@@ -90,10 +61,7 @@ const App: React.FC = () => {
 
   useEffect(() => {
     window.electronAPI?.getTheme().then((t) => setTheme(t as Theme));
-    window.electronAPI?.getAdapters().then((a) => {
-      setAdapters(a);
-      setLoading(false);
-    });
+    window.electronAPI?.getAdapters().then((a) => { setAdapters(a); setLoading(false); });
     window.electronAPI?.onNetworkMetric((incoming: NetworkMetric[]) => {
       setMetrics((prev) => {
         const next = new Map(prev);
@@ -118,41 +86,24 @@ const App: React.FC = () => {
 
   return (
     <div className={`app-root ${theme}`}>
-      {/* ── Header ── */}
       <header className="app-header">
         <h1 className="app-title">🌐 Network Tracker</h1>
         <nav className="tab-nav">
-          <button
-            className={`tab-btn ${tab === 'dashboard' ? 'active' : ''}`}
-            onClick={() => setTab('dashboard')}
-          >
-            Dashboard
-          </button>
-          <button
-            className={`tab-btn ${tab === 'charts' ? 'active' : ''}`}
-            onClick={() => setTab('charts')}
-          >
-            📈 Charts
-          </button>
+          <button className={`tab-btn ${tab === 'dashboard' ? 'active' : ''}`} onClick={() => setTab('dashboard')}>Dashboard</button>
+          <button className={`tab-btn ${tab === 'charts'    ? 'active' : ''}`} onClick={() => setTab('charts')}>📈 Charts</button>
+          <button className={`tab-btn ${tab === 'alerts'    ? 'active' : ''}`} onClick={() => setTab('alerts')}>🔔 Alerts</button>
         </nav>
         <button className="theme-toggle" onClick={toggleTheme}>
           {theme === 'dark' ? '☀️ Light' : '🌙 Dark'}
         </button>
       </header>
 
-      {/* ── Main ── */}
       <main className="app-main">
-        {/* Dashboard tab */}
         {tab === 'dashboard' && (
           <section className="adapters-panel">
             <h2 className="section-title">Network Adapters</h2>
-
             {loading && <p className="status-msg">Detecting adapters…</p>}
-
-            {!loading && adapters.length === 0 && (
-              <p className="status-msg">No physical adapters found.</p>
-            )}
-
+            {!loading && adapters.length === 0 && <p className="status-msg">No physical adapters found.</p>}
             {!loading && adapters.length > 0 && (
               <ul className="adapter-list">
                 {adapters.map((adapter) => {
@@ -182,16 +133,13 @@ const App: React.FC = () => {
                 })}
               </ul>
             )}
-
             <div className="sprint-note">
-              <strong>Sprint 2 ✔</strong> — Live capture, SQLite persistence,
-              aggregation service, and historical charts all complete.
+              <strong>Sprint 2 ✔</strong> — Live capture, SQLite, aggregation, charts, alerts all complete.
             </div>
           </section>
         )}
-
-        {/* Charts tab */}
         {tab === 'charts' && <ChartsTab adapters={adapters} />}
+        {tab === 'alerts' && <AlertsSettings />}
       </main>
     </div>
   );

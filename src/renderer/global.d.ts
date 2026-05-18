@@ -2,6 +2,12 @@ import { NetworkAdapter, NetworkMetric, AggregatedMetric } from '../shared/types
 
 export {};
 
+interface AlertConfig {
+  enabled:              boolean;
+  downloadThresholdBps: number;
+  uploadThresholdBps:   number;
+}
+
 declare global {
   interface Window {
     electronAPI: {
@@ -17,10 +23,13 @@ declare global {
       getLatestMetrics: () => Promise<NetworkMetric[]>;
       onNetworkMetric: (callback: (metrics: NetworkMetric[]) => void) => void;
       removeMetricListeners: () => void;
-      // Historical DB queries
+      // Historical DB
       getMetrics: (query?: { adapterName?: string; since?: number; until?: number; limit?: number }) => Promise<NetworkMetric[]>;
       getMetricsSummary: (adapterName: string, since: number, until: number) => Promise<{ totalSent: number; totalReceived: number; peakSpeedUp: number; peakSpeedDown: number; rowCount: number }>;
       getAggregated: (query?: { adapterName?: string; since?: number; until?: number }) => Promise<AggregatedMetric[]>;
+      // Alerts
+      getAlertConfig:  () => Promise<AlertConfig>;
+      saveAlertConfig: (config: AlertConfig) => Promise<{ ok: boolean }>;
     };
   }
 }
