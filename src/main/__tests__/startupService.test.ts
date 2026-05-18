@@ -2,34 +2,28 @@
  * Unit tests for Issue #22 — startupService
  */
 import Database from 'better-sqlite3';
-import * as os   from 'os';
-import * as fs   from 'fs';
-import * as path from 'path';
+import * as os from 'os';
+import * as fs from 'fs';
 import { _setDbForTest } from '../db/database';
 import { CREATE_APP_CONFIG, DEFAULT_CONFIG } from '../db/schema';
 
 // ── Mocks ────────────────────────────────────────────────────────────────────
 const mockGetLoginItemSettings = jest.fn();
 const mockSetLoginItemSettings = jest.fn();
-const mockGetPath             = jest.fn();
+const mockGetPath = jest.fn();
 
 jest.mock('electron', () => ({
   app: {
     getLoginItemSettings: mockGetLoginItemSettings,
     setLoginItemSettings: mockSetLoginItemSettings,
-    getPath:             mockGetPath,
+    getPath: mockGetPath,
   },
 }));
 
-// Jest hoists jest.mock() above imports, so top-level imports are not
-// accessible inside factory functions. Use jest.requireActual() instead.
+// jest.mock is hoisted above imports — use jest.requireActual inside factory.
 jest.mock('os', () => ({
   ...(jest.requireActual('os') as typeof import('os')),
-  homedir: () => {
-    const actualPath = jest.requireActual('path') as typeof import('path');
-    const actualOs   = jest.requireActual('os')   as typeof import('os');
-    return actualPath.join(actualOs.tmpdir(), 'nt-test-home');
-  },
+  homedir: () => `${(jest.requireActual('os') as typeof import('os')).tmpdir()}/nt-test-home`,
 }));
 
 import {
@@ -37,6 +31,10 @@ import {
   setLoginItemEnabled,
   getStartupConfig,
 } from '../startup/startupService';
+
+/** Resolved once so every test uses the same base dir. */
+const TEST_HOME = `${os.tmpdir()}/nt-test-home`;
+const DESKTOP_FILE = `${TEST_HOME}/.config/autostart/network-tracker.desktop`;
 
 function setupDb() {
   const mem = new Database(':memory:');
@@ -55,16 +53,14 @@ beforeEach(() => {
 });
 
 afterAll(() => {
-  try {
-    fs.rmSync(path.join(os.tmpdir(), 'nt-test-home'), { recursive: true, force: true });
-  } catch { /* ok */ }
+  try { fs.rmSync(TEST_HOME, { recursive: true, force: true }); } catch { /* ok */ }
 });
 
 // ── getLoginItemEnabled (non-linux) ──────────────────────────────────────────
 describe('getLoginItemEnabled — native (non-linux)', () => {
   const originalPlatform = process.platform;
   beforeAll(() => { Object.defineProperty(process, 'platform', { value: 'darwin' }); });
-  afterAll(()  => { Object.defineProperty(process, 'platform', { value: originalPlatform }); });
+  afterAll(() => { Object.defineProperty(process, 'platform', { value: originalPlatform }); });
 
   it('returns false when openAtLogin is false', () => {
     mockGetLoginItemSettings.mockReturnValue({ openAtLogin: false });
@@ -81,7 +77,7 @@ describe('getLoginItemEnabled — native (non-linux)', () => {
 describe('setLoginItemEnabled — native (non-linux)', () => {
   const originalPlatform = process.platform;
   beforeAll(() => { Object.defineProperty(process, 'platform', { value: 'win32' }); });
-  afterAll(()  => { Object.defineProperty(process, 'platform', { value: originalPlatform }); });
+  afterAll(() => { Object.defineProperty(process, 'platform', { value: originalPlatform }); });
 
   it('calls app.setLoginItemSettings with openAtLogin: true and openAsHidden: true', () => {
     mockGetLoginItemSettings.mockReturnValue({ openAtLogin: true });
@@ -111,15 +107,12 @@ describe('setLoginItemEnabled — native (non-linux)', () => {
 describe('setLoginItemEnabled — Linux', () => {
   const originalPlatform = process.platform;
   beforeAll(() => { Object.defineProperty(process, 'platform', { value: 'linux' }); });
-  afterAll(()  => { Object.defineProperty(process, 'platform', { value: originalPlatform }); });
+  afterAll(() => { Object.defineProperty(process, 'platform', { value: originalPlatform }); });
 
   it('writes a .desktop file when enabled', () => {
     setLoginItemEnabled(true);
-    const desktopFile = path.join(
-      os.tmpdir(), 'nt-test-home', '.config', 'autostart', 'network-tracker.desktop'
-    );
-    expect(fs.existsSync(desktopFile)).toBe(true);
-    const content = fs.readFileSync(desktopFile, 'utf8');
+    expect(fs.existsSync(DESKTOP_FILE)).toBe(true);
+    const content = fs.readFileSync(DESKTOP_FILE, 'utf8');
     expect(content).toContain('[Desktop Entry]');
     expect(content).toContain('Exec=');
     expect(content).toContain('--hidden');
@@ -128,10 +121,7 @@ describe('setLoginItemEnabled — Linux', () => {
   it('removes the .desktop file when disabled', () => {
     setLoginItemEnabled(true);
     setLoginItemEnabled(false);
-    const desktopFile = path.join(
-      os.tmpdir(), 'nt-test-home', '.config', 'autostart', 'network-tracker.desktop'
-    );
-    expect(fs.existsSync(desktopFile)).toBe(false);
+    expect(fs.existsSync(DESKTOP_FILE)).toBe(false);
   });
 
   it('does not throw when removing a non-existent desktop file', () => {
@@ -154,7 +144,7 @@ describe('setLoginItemEnabled — Linux', () => {
 describe('getStartupConfig', () => {
   const originalPlatform = process.platform;
   beforeAll(() => { Object.defineProperty(process, 'platform', { value: 'darwin' }); });
-  afterAll(()  => { Object.defineProperty(process, 'platform', { value: originalPlatform }); });
+  afterAll(() => { Object.defineProperty(process, 'platform', { value: originalPlatform }); });
 
   it('returns false by default (key not yet written)', () => {
     mockGetLoginItemSettings.mockReturnValue({ openAtLogin: false });
