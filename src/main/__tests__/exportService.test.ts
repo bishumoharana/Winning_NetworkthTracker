@@ -7,8 +7,11 @@ import * as fs   from 'fs';
 import { _setDbForTest } from '../db/database';
 import { CREATE_NETWORK_METRICS } from '../db/schema';
 
-// eslint-disable-next-line @typescript-eslint/no-var-requires
-jest.mock('electron', () => ({ app: { getPath: () => jest.requireActual<typeof import('os')>('os').tmpdir() } }));
+jest.mock('electron', () => ({
+  app: {
+    getPath: () => (jest.requireActual('os') as typeof import('os')).tmpdir(),
+  },
+}));
 
 import {
   queryMetrics,
@@ -28,10 +31,8 @@ function seedDb(db: InstanceType<typeof Database>) {
      (adapter_id, adapter_name, timestamp, bytes_sent, bytes_received, speed_up, speed_down)
      VALUES (?, ?, ?, ?, ?, ?, ?)`
   );
-  // eth0: two rows
   ins.run('eth0', 'Ethernet', NOW - 5000, 1000, 2000, 100, 200);
   ins.run('eth0', 'Ethernet', NOW,        3000, 4000, 300, 400);
-  // wlan0: one row
   ins.run('wlan0', 'Wi-Fi', NOW - 2000, 500, 600, 50, 60);
 }
 
@@ -44,7 +45,7 @@ beforeEach(() => {
 // ── queryMetrics ─────────────────────────────────────────────────────────────
 describe('queryMetrics', () => {
   it('returns all rows when no filter', () => {
-    expect(queryMetrics({format:'csv'})).toHaveLength(3);
+    expect(queryMetrics({ format: 'csv' })).toHaveLength(3);
   });
 
   it('filters by adapterId', () => {
@@ -55,12 +56,12 @@ describe('queryMetrics', () => {
 
   it('filters by fromTs', () => {
     const rows = queryMetrics({ format: 'csv', fromTs: NOW - 3000 });
-    expect(rows).toHaveLength(2); // NOW-2000 and NOW
+    expect(rows).toHaveLength(2);
   });
 
   it('filters by toTs', () => {
     const rows = queryMetrics({ format: 'csv', toTs: NOW - 3000 });
-    expect(rows).toHaveLength(1); // only NOW-5000
+    expect(rows).toHaveLength(1);
   });
 
   it('combines adapterId + date range', () => {
@@ -89,16 +90,20 @@ describe('formatCsv', () => {
   });
 
   it('preserves bps values as plain numbers', () => {
-    const row: MetricRow = { id:1, adapter_id:'eth0', adapter_name:'Ethernet',
-      timestamp: NOW, bytes_sent:0, bytes_received:0, speed_up:123456, speed_down:654321 };
+    const row: MetricRow = {
+      id: 1, adapter_id: 'eth0', adapter_name: 'Ethernet',
+      timestamp: NOW, bytes_sent: 0, bytes_received: 0, speed_up: 123456, speed_down: 654321,
+    };
     const csv = formatCsv([row]);
     expect(csv).toContain('123456');
     expect(csv).toContain('654321');
   });
 
   it('quotes adapter_name containing spaces', () => {
-    const row: MetricRow = { id:1, adapter_id:'w0', adapter_name:'Wi-Fi Adapter',
-      timestamp: NOW, bytes_sent:0, bytes_received:0, speed_up:0, speed_down:0 };
+    const row: MetricRow = {
+      id: 1, adapter_id: 'w0', adapter_name: 'Wi-Fi Adapter',
+      timestamp: NOW, bytes_sent: 0, bytes_received: 0, speed_up: 0, speed_down: 0,
+    };
     expect(formatCsv([row])).toContain('"Wi-Fi Adapter"');
   });
 });

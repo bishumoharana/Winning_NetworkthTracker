@@ -21,11 +21,15 @@ jest.mock('electron', () => ({
   },
 }));
 
-// Use a temp dir for the Linux desktop file
-// eslint-disable-next-line @typescript-eslint/no-require-imports
+// Jest hoists jest.mock() above imports, so top-level imports are not
+// accessible inside factory functions. Use jest.requireActual() instead.
 jest.mock('os', () => ({
-  ...jest.requireActual('os'),
-  homedir: () => require('path').join(require('os').tmpdir(), 'nt-test-home'),
+  ...(jest.requireActual('os') as typeof import('os')),
+  homedir: () => {
+    const actualPath = jest.requireActual('path') as typeof import('path');
+    const actualOs   = jest.requireActual('os')   as typeof import('os');
+    return actualPath.join(actualOs.tmpdir(), 'nt-test-home');
+  },
 }));
 
 import {
@@ -51,7 +55,9 @@ beforeEach(() => {
 });
 
 afterAll(() => {
-  try { fs.rmSync(path.join(os.tmpdir(), 'nt-test-home'), { recursive: true, force: true }); } catch { /* ok */ }
+  try {
+    fs.rmSync(path.join(os.tmpdir(), 'nt-test-home'), { recursive: true, force: true });
+  } catch { /* ok */ }
 });
 
 // ── getLoginItemEnabled (non-linux) ──────────────────────────────────────────
@@ -109,7 +115,9 @@ describe('setLoginItemEnabled — Linux', () => {
 
   it('writes a .desktop file when enabled', () => {
     setLoginItemEnabled(true);
-    const desktopFile = path.join(os.tmpdir(), 'nt-test-home', '.config', 'autostart', 'network-tracker.desktop');
+    const desktopFile = path.join(
+      os.tmpdir(), 'nt-test-home', '.config', 'autostart', 'network-tracker.desktop'
+    );
     expect(fs.existsSync(desktopFile)).toBe(true);
     const content = fs.readFileSync(desktopFile, 'utf8');
     expect(content).toContain('[Desktop Entry]');
@@ -120,7 +128,9 @@ describe('setLoginItemEnabled — Linux', () => {
   it('removes the .desktop file when disabled', () => {
     setLoginItemEnabled(true);
     setLoginItemEnabled(false);
-    const desktopFile = path.join(os.tmpdir(), 'nt-test-home', '.config', 'autostart', 'network-tracker.desktop');
+    const desktopFile = path.join(
+      os.tmpdir(), 'nt-test-home', '.config', 'autostart', 'network-tracker.desktop'
+    );
     expect(fs.existsSync(desktopFile)).toBe(false);
   });
 
