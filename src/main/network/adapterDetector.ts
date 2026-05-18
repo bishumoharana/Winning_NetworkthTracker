@@ -1,70 +1,77 @@
 import * as os from 'os';
 import { NetworkAdapter } from '../../shared/types';
-import { detectAdapterType, isAdapterActive } from './adapterUtils';
+import {
+  inferAdapterType,
+  inferAdapterStatus,
+  normalizeMac,
+  isVirtualAdapter,
+  prioritizeAdapters,
+} from './adapterUtils';
 
 /**
- * Enumerates all network adapters on the system using os.networkInterfaces().
- * Returns a deduplicated list of NetworkAdapter objects.
+ * Enumerates all physical network adapters on the system.
+ * Excludes loopback and virtual/VPN adapters.
+ * Returns a sorted NetworkAdapter[] (active ethernet first).
  */
-export function getNetworkAdapters(): NetworkAdapter[] {
-  const interfaces = os.networkInterfaces();
+export function getAdapters(): NetworkAdapter[] {
+  const raw = os.networkInterfaces();
   const adapters: NetworkAdapter[] = [];
-  const seen = new Set<string>();
 
-  for (const [name, addresses] of Object.entries(interfaces)) {
-    if (!addresses || addresses.length === 0) continue;
+  for (const [name, ifaces] of Object.entries(raw)) {
+    if (!ifaces || ifaces.length === 0) continue;
 
-    // Deduplicate by interface name
-    if (seen.has(name)) continue;
-    seen.add(name);
+    // Skip loopback and known virtual adapters
+    if (isVirtualAdapter(name)) continue;
 
-    // Find MAC address (present on any address entry for this interface)
-    const mac = addresses.find((a) => a.mac && a.mac !== '00:00:00:00:00:00')?.mac ?? '';
+    // Skip all-internal adapters (loopback IPs only)
+    const allInternal = ifaces.every((i) => i.internal);
+    if (allInternal) continue;
 
-    // Find IPv4 and IPv6
-    const ipv4Entry = addresses.find((a) => a.family === 'IPv4');
-    const ipv6Entry = addresses.find((a) => a.family === 'IPv6' && !a.address.startsWith('fe80'));
+    const mac = normalizeMac(ifaces[0].mac);
+    const type = inferAdapterType(name);
+    const status = inferAdapterStatus(ifaces);
 
-    const active = isAdapterActive(addresses);
-    const type = detectAdapterType(name);
+    // Extract first IPv4 and IPv6 addresses
+    const ipv4Entry = ifaces.find(
+      (i) => i.family === 'IPv4' && !i.internal
+    );
+    const ipv6Entry = ifaces.find(
+      (i) => i.family === 'IPv6' && !i.internal
+    );
 
     adapters.push({
       name,
       mac,
       type,
-      status: active ? 'active' : 'inactive',
+      status,
       ipv4: ipv4Entry?.address,
       ipv6: ipv6Entry?.address,
     });
   }
 
-  // Sort: active first, then alphabetically
-  return adapters.sort((a, b) => {
-    if (a.status === 'active' && b.status !== 'active') return -1;
-    if (a.status !== 'active' && b.status === 'active') return 1;
-    return a.name.localeCompare(b.name);
+  return prioritizeAdapters(adapters);
+}
+
+/**
+ * Returns the primary (highest priority active) adapter, or null if none active.
+ */
+export function detectPrimaryAdapter(): NetworkAdapter | null {
+  const adapters = getAdapters();
+  return adapters.find((a) => a.status === 'active') ?? null;
+}
+
+/**
+ * Logs all detected adapters to the console.
+ * Used during development / Task 1.2 verification.
+ */
+export function logAdapters(): void {
+  const adapters = getAdapters();
+  // eslint-disable-next-line no-console
+  console.warn(`[AdapterDetector] Found ${adapters.length} adapter(s):`);
+  adapters.forEach((a, i) => {
+    // eslint-disable-next-line no-console
+    console.warn(
+      `  [${i + 1}] ${a.name} | type=${a.type} | status=${a.status} | mac=${a.mac} | ipv4=${a.ipv4 ?? 'n/a'}`
+    );
   });
-}
-
-/**
- * Returns only adapters that are currently active.
- */
-export function getActiveAdapters(): NetworkAdapter[] {
-  return getNetworkAdapters().filter((a) => a.status === 'active');
-}
-
-/**
- * Returns the primary active adapter (first active, preferring Ethernet over WiFi).
- */
-export function getPrimaryAdapter(): NetworkAdapter | null {
-  const active = getActiveAdapters();
-  if (active.length === 0) return null;
-
-  const ethernet = active.find((a) => a.type === 'ethernet');
-  if (ethernet) return ethernet;
-
-  const wifi = active.find((a) => a.type === 'wifi');
-  if (wifi) return wifi;
-
-  return active[0];
 }

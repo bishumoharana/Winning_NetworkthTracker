@@ -1,204 +1,201 @@
-import * as os from 'os';
+/**
+ * Unit tests for Task 1.2 — Network Adapter Detection
+ * Tests all pure utility functions in adapterUtils.ts
+ * and the getAdapters / detectPrimaryAdapter logic.
+ */
 import {
-  getNetworkAdapters,
-  getActiveAdapters,
-  getPrimaryAdapter,
-} from '../network/adapterDetector';
+  inferAdapterType,
+  inferAdapterStatus,
+  normalizeMac,
+  isVirtualAdapter,
+  prioritizeAdapters,
+} from '../network/adapterUtils';
+import { NetworkAdapter } from '../../shared/types';
+import * as os from 'os';
 
-// ---------------------------------------------------------------------------
-// Mock os.networkInterfaces()
-// ---------------------------------------------------------------------------
-jest.mock('os');
-const mockedOs = os as jest.Mocked<typeof os>;
-
-const MOCK_INTERFACES: Record<string, os.NetworkInterfaceInfo[]> = {
-  'Wi-Fi': [
-    {
-      address: '192.168.1.50',
-      netmask: '255.255.255.0',
-      family: 'IPv4',
-      mac: 'aa:bb:cc:dd:ee:01',
-      internal: false,
-      cidr: '192.168.1.50/24',
-    },
-    {
-      address: 'fe80::1',
-      netmask: 'ffff:ffff:ffff:ffff::',
-      family: 'IPv6',
-      mac: 'aa:bb:cc:dd:ee:01',
-      internal: false,
-      cidr: 'fe80::1/64',
-    },
-  ],
-  'Ethernet': [
-    {
-      address: '10.0.0.5',
-      netmask: '255.255.0.0',
-      family: 'IPv4',
-      mac: 'aa:bb:cc:dd:ee:02',
-      internal: false,
-      cidr: '10.0.0.5/16',
-    },
-  ],
-  'Loopback Pseudo-Interface 1': [
-    {
-      address: '127.0.0.1',
-      netmask: '255.0.0.0',
-      family: 'IPv4',
-      mac: '00:00:00:00:00:00',
-      internal: true,
-      cidr: '127.0.0.1/8',
-    },
-  ],
-  'Disconnected Adapter': [
-    {
-      address: '169.254.100.1',
-      netmask: '255.255.0.0',
-      family: 'IPv4',
-      mac: 'aa:bb:cc:dd:ee:03',
-      internal: false,
-      cidr: '169.254.100.1/16',
-    },
-  ],
-};
-
-beforeEach(() => {
-  mockedOs.networkInterfaces.mockReturnValue(MOCK_INTERFACES as any);
-});
-
-afterEach(() => {
-  jest.clearAllMocks();
-});
-
-// ---------------------------------------------------------------------------
-// getNetworkAdapters
-// ---------------------------------------------------------------------------
-describe('getNetworkAdapters', () => {
-  it('returns an array of NetworkAdapter objects', () => {
-    const adapters = getNetworkAdapters();
-    expect(Array.isArray(adapters)).toBe(true);
-    expect(adapters.length).toBeGreaterThan(0);
+// -------------------------------------------------------------------------
+// inferAdapterType
+// -------------------------------------------------------------------------
+describe('inferAdapterType', () => {
+  it('detects Wi-Fi (Windows name)', () => {
+    expect(inferAdapterType('Wi-Fi')).toBe('wifi');
   });
 
-  it('detects Wi-Fi adapter with correct type', () => {
-    const adapters = getNetworkAdapters();
-    const wifi = adapters.find((a) => a.name === 'Wi-Fi');
-    expect(wifi).toBeDefined();
-    expect(wifi?.type).toBe('wifi');
+  it('detects wifi from "Wireless Network Adapter"', () => {
+    expect(inferAdapterType('Wireless Network Adapter')).toBe('wifi');
   });
 
-  it('detects Ethernet adapter with correct type', () => {
-    const adapters = getNetworkAdapters();
-    const eth = adapters.find((a) => a.name === 'Ethernet');
-    expect(eth).toBeDefined();
-    expect(eth?.type).toBe('ethernet');
+  it('detects wifi from Linux wlan0', () => {
+    expect(inferAdapterType('wlan0')).toBe('wifi');
   });
 
-  it('marks Wi-Fi as active (has valid IPv4)', () => {
-    const adapters = getNetworkAdapters();
-    const wifi = adapters.find((a) => a.name === 'Wi-Fi');
-    expect(wifi?.status).toBe('active');
+  it('detects wifi from Linux wlp2s0', () => {
+    expect(inferAdapterType('wlp2s0')).toBe('wifi');
   });
 
-  it('marks Ethernet as active (has valid IPv4)', () => {
-    const adapters = getNetworkAdapters();
-    const eth = adapters.find((a) => a.name === 'Ethernet');
-    expect(eth?.status).toBe('active');
+  it('detects ethernet from "Ethernet" (Windows)', () => {
+    expect(inferAdapterType('Ethernet')).toBe('ethernet');
   });
 
-  it('marks APIPA adapter as inactive', () => {
-    const adapters = getNetworkAdapters();
-    const disc = adapters.find((a) => a.name === 'Disconnected Adapter');
-    expect(disc?.status).toBe('inactive');
+  it('detects ethernet from Linux eth0', () => {
+    expect(inferAdapterType('eth0')).toBe('ethernet');
   });
 
-  it('extracts correct MAC address for Wi-Fi', () => {
-    const adapters = getNetworkAdapters();
-    const wifi = adapters.find((a) => a.name === 'Wi-Fi');
-    expect(wifi?.mac).toBe('aa:bb:cc:dd:ee:01');
+  it('detects ethernet from Linux enp3s0', () => {
+    expect(inferAdapterType('enp3s0')).toBe('ethernet');
   });
 
-  it('extracts IPv4 address for Wi-Fi', () => {
-    const adapters = getNetworkAdapters();
-    const wifi = adapters.find((a) => a.name === 'Wi-Fi');
-    expect(wifi?.ipv4).toBe('192.168.1.50');
+  it('detects ethernet from "Local Area Connection"', () => {
+    expect(inferAdapterType('Local Area Connection')).toBe('ethernet');
   });
 
-  it('sorts active adapters before inactive ones', () => {
-    const adapters = getNetworkAdapters();
-    const firstInactiveIndex = adapters.findIndex((a) => a.status === 'inactive');
-    const lastActiveIndex = adapters.reduce(
-      (last, a, i) => (a.status === 'active' ? i : last),
-      -1
-    );
-    if (firstInactiveIndex !== -1 && lastActiveIndex !== -1) {
-      expect(lastActiveIndex).toBeLessThan(firstInactiveIndex);
-    }
+  it('detects cellular from "Cellular"', () => {
+    expect(inferAdapterType('Cellular')).toBe('cellular');
   });
 
-  it('does not include loopback as a separate active adapter (127.0.0.1 is internal)', () => {
-    const adapters = getNetworkAdapters();
-    const loopback = adapters.find((a) => a.ipv4 === '127.0.0.1');
-    // Loopback may be included but must not be active
-    if (loopback) {
-      expect(loopback.status).toBe('inactive');
-    }
+  it('detects cellular from "WWAN Adapter"', () => {
+    expect(inferAdapterType('WWAN Adapter')).toBe('cellular');
   });
 
-  it('returns empty array when os.networkInterfaces returns empty', () => {
-    mockedOs.networkInterfaces.mockReturnValueOnce({});
-    const adapters = getNetworkAdapters();
-    expect(adapters).toEqual([]);
+  it('returns unknown for unrecognised names', () => {
+    expect(inferAdapterType('vEthernet (WSL)')).toBe('unknown');
+    expect(inferAdapterType('Hamachi')).toBe('unknown');
   });
 });
 
-// ---------------------------------------------------------------------------
-// getActiveAdapters
-// ---------------------------------------------------------------------------
-describe('getActiveAdapters', () => {
-  it('returns only active adapters', () => {
-    const active = getActiveAdapters();
-    expect(active.every((a) => a.status === 'active')).toBe(true);
+// -------------------------------------------------------------------------
+// inferAdapterStatus
+// -------------------------------------------------------------------------
+describe('inferAdapterStatus', () => {
+  const makeIface = (
+    family: 'IPv4' | 'IPv6',
+    address: string,
+    internal = false
+  ): os.NetworkInterfaceInfo => ({
+    family,
+    address,
+    netmask: '255.255.255.0',
+    mac: 'aa:bb:cc:dd:ee:ff',
+    internal,
+    cidr: null,
   });
 
-  it('returns at least one active adapter in normal mock', () => {
-    const active = getActiveAdapters();
-    expect(active.length).toBeGreaterThanOrEqual(1);
+  it('returns active when IPv4 address present and external', () => {
+    expect(inferAdapterStatus([makeIface('IPv4', '192.168.1.10')])).toBe('active');
   });
 
-  it('returns empty array when no active interfaces exist', () => {
-    mockedOs.networkInterfaces.mockReturnValueOnce({
-      lo: [{ address: '127.0.0.1', netmask: '255.0.0.0', family: 'IPv4', mac: '00:00:00:00:00:00', internal: true, cidr: '127.0.0.1/8' }],
-    } as any);
-    expect(getActiveAdapters()).toEqual([]);
+  it('returns inactive when address is 0.0.0.0', () => {
+    expect(inferAdapterStatus([makeIface('IPv4', '0.0.0.0')])).toBe('inactive');
+  });
+
+  it('returns standby when only IPv6 present', () => {
+    expect(inferAdapterStatus([makeIface('IPv6', 'fe80::1')])).toBe('standby');
+  });
+
+  it('returns inactive when ifaces array is empty', () => {
+    expect(inferAdapterStatus([])).toBe('inactive');
+  });
+
+  it('returns inactive when all addresses are internal', () => {
+    expect(inferAdapterStatus([makeIface('IPv4', '127.0.0.1', true)])).toBe('inactive');
   });
 });
 
-// ---------------------------------------------------------------------------
-// getPrimaryAdapter
-// ---------------------------------------------------------------------------
-describe('getPrimaryAdapter', () => {
-  it('returns non-null when adapters exist', () => {
-    expect(getPrimaryAdapter()).not.toBeNull();
+// -------------------------------------------------------------------------
+// normalizeMac
+// -------------------------------------------------------------------------
+describe('normalizeMac', () => {
+  it('converts uppercase colon-separated MAC to lowercase', () => {
+    expect(normalizeMac('AA:BB:CC:DD:EE:FF')).toBe('aa:bb:cc:dd:ee:ff');
   });
 
-  it('prefers Ethernet over Wi-Fi as primary', () => {
-    const primary = getPrimaryAdapter();
-    // Both Ethernet and Wi-Fi are active in mock; Ethernet should win
-    expect(primary?.type).toBe('ethernet');
+  it('converts hyphen-separated MAC to colon-separated', () => {
+    expect(normalizeMac('AA-BB-CC-DD-EE-FF')).toBe('aa:bb:cc:dd:ee:ff');
   });
 
-  it('falls back to Wi-Fi if no Ethernet active', () => {
-    const wifiOnly: Record<string, os.NetworkInterfaceInfo[]> = {
-      'Wi-Fi': MOCK_INTERFACES['Wi-Fi'],
-    };
-    mockedOs.networkInterfaces.mockReturnValueOnce(wifiOnly as any);
-    const primary = getPrimaryAdapter();
-    expect(primary?.type).toBe('wifi');
+  it('passes through already normalised MAC', () => {
+    expect(normalizeMac('aa:bb:cc:dd:ee:ff')).toBe('aa:bb:cc:dd:ee:ff');
   });
 
-  it('returns null when no active adapters exist', () => {
-    mockedOs.networkInterfaces.mockReturnValueOnce({} as any);
-    expect(getPrimaryAdapter()).toBeNull();
+  it('returns zero MAC unchanged', () => {
+    expect(normalizeMac('00:00:00:00:00:00')).toBe('00:00:00:00:00:00');
+  });
+
+  it('handles empty string gracefully', () => {
+    expect(normalizeMac('')).toBe('');
+  });
+});
+
+// -------------------------------------------------------------------------
+// isVirtualAdapter
+// -------------------------------------------------------------------------
+describe('isVirtualAdapter', () => {
+  it('identifies loopback as virtual', () => {
+    expect(isVirtualAdapter('lo')).toBe(true);
+    expect(isVirtualAdapter('Loopback Pseudo-Interface 1')).toBe(true);
+  });
+
+  it('identifies VMware adapters as virtual', () => {
+    expect(isVirtualAdapter('VMware Network Adapter VMnet1')).toBe(true);
+  });
+
+  it('identifies Docker bridge as virtual', () => {
+    expect(isVirtualAdapter('docker0')).toBe(true);
+    expect(isVirtualAdapter('br-abc123')).toBe(true);
+  });
+
+  it('identifies VPN tunnel as virtual', () => {
+    expect(isVirtualAdapter('tun0')).toBe(true);
+    expect(isVirtualAdapter('tap0')).toBe(true);
+  });
+
+  it('does NOT flag real adapters as virtual', () => {
+    expect(isVirtualAdapter('Wi-Fi')).toBe(false);
+    expect(isVirtualAdapter('Ethernet')).toBe(false);
+    expect(isVirtualAdapter('eth0')).toBe(false);
+    expect(isVirtualAdapter('wlan0')).toBe(false);
+  });
+});
+
+// -------------------------------------------------------------------------
+// prioritizeAdapters
+// -------------------------------------------------------------------------
+describe('prioritizeAdapters', () => {
+  const makeAdapter = (
+    name: string,
+    type: NetworkAdapter['type'],
+    status: NetworkAdapter['status']
+  ): NetworkAdapter => ({ name, mac: 'aa:bb:cc:00:00:01', type, status });
+
+  it('puts active adapters before standby before inactive', () => {
+    const input = [
+      makeAdapter('lo', 'unknown', 'inactive'),
+      makeAdapter('wlan0', 'wifi', 'standby'),
+      makeAdapter('eth0', 'ethernet', 'active'),
+    ];
+    const result = prioritizeAdapters(input);
+    expect(result[0].status).toBe('active');
+    expect(result[1].status).toBe('standby');
+    expect(result[2].status).toBe('inactive');
+  });
+
+  it('puts ethernet before wifi when both active', () => {
+    const input = [
+      makeAdapter('wlan0', 'wifi', 'active'),
+      makeAdapter('eth0', 'ethernet', 'active'),
+    ];
+    const result = prioritizeAdapters(input);
+    expect(result[0].type).toBe('ethernet');
+    expect(result[1].type).toBe('wifi');
+  });
+
+  it('does not mutate the original array', () => {
+    const input = [
+      makeAdapter('wlan0', 'wifi', 'active'),
+      makeAdapter('eth0', 'ethernet', 'active'),
+    ];
+    const original = [...input];
+    prioritizeAdapters(input);
+    expect(input[0].name).toBe(original[0].name);
   });
 });

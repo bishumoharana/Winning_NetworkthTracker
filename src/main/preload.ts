@@ -1,33 +1,25 @@
 import { contextBridge, ipcRenderer } from 'electron';
-import { NetworkAdapter, NetworkChangeEvent } from './network/networkMonitor';
+import { NetworkAdapter, IPC_CHANNELS } from '../shared/types';
 
+// Expose safe APIs to renderer process via window.electronAPI
 contextBridge.exposeInMainWorld('electronAPI', {
   // Theme
-  getTheme: (): Promise<string> => ipcRenderer.invoke('get-theme'),
+  getTheme: (): Promise<string> =>
+    ipcRenderer.invoke(IPC_CHANNELS.GET_THEME),
   setTheme: (theme: 'dark' | 'light' | 'system'): Promise<string> =>
-    ipcRenderer.invoke('set-theme', theme),
+    ipcRenderer.invoke(IPC_CHANNELS.SET_THEME, theme),
 
-  // Network - point in time
+  // Adapter detection (Task 1.2)
   getAdapters: (): Promise<NetworkAdapter[]> =>
-    ipcRenderer.invoke('get-adapters'),
-  getActiveAdapters: (): Promise<NetworkAdapter[]> =>
-    ipcRenderer.invoke('get-active-adapters'),
+    ipcRenderer.invoke(IPC_CHANNELS.GET_ADAPTERS),
   getPrimaryAdapter: (): Promise<NetworkAdapter | null> =>
     ipcRenderer.invoke('get-primary-adapter'),
 
-  // Network - real-time monitor
-  startNetworkMonitor: (): Promise<{ started: boolean }> =>
-    ipcRenderer.invoke('start-network-monitor'),
-  stopNetworkMonitor: (): Promise<{ stopped: boolean }> =>
-    ipcRenderer.invoke('stop-network-monitor'),
-  getMonitorStatus: (): Promise<{ isRunning: boolean; adapters: NetworkAdapter[] }> =>
-    ipcRenderer.invoke('get-monitor-status'),
-
-  // Network change event subscription
-  onNetworkChange: (callback: (events: NetworkChangeEvent[]) => void): void => {
-    ipcRenderer.on('network-change', (_event, events) => callback(events));
+  // Real-time network change events (stub — wired in Task 1.3)
+  onNetworkChange: (callback: (adapters: NetworkAdapter[]) => void) => {
+    ipcRenderer.on(IPC_CHANNELS.NETWORK_CHANGE, (_event, data) => callback(data));
   },
-  removeNetworkListeners: (): void => {
-    ipcRenderer.removeAllListeners('network-change');
+  removeNetworkListeners: () => {
+    ipcRenderer.removeAllListeners(IPC_CHANNELS.NETWORK_CHANGE);
   },
 });

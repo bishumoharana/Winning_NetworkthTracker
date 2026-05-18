@@ -1,13 +1,18 @@
-// Type declarations for window.electronAPI exposed via preload
+import { NetworkAdapter } from '../shared/types';
+
 export {};
 
 declare global {
   interface Window {
     electronAPI: {
+      // Theme
       getTheme: () => Promise<string>;
       setTheme: (theme: 'dark' | 'light' | 'system') => Promise<string>;
-      getAdapters: () => Promise<unknown>;
-      onNetworkChange: (callback: (data: unknown) => void) => void;
+      // Adapter detection (Task 1.2)
+      getAdapters: () => Promise<NetworkAdapter[]>;
+      getPrimaryAdapter: () => Promise<NetworkAdapter | null>;
+      // Real-time events (Task 1.3)
+      onNetworkChange: (callback: (adapters: NetworkAdapter[]) => void) => void;
       removeNetworkListeners: () => void;
     };
   }

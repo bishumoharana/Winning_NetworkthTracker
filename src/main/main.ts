@@ -1,6 +1,8 @@
 import { app, BrowserWindow, ipcMain, nativeTheme } from 'electron';
 import * as path from 'path';
-import { registerNetworkHandlers, startMonitoring, stopMonitoring } from './ipc/networkHandlers';
+import { IPC_CHANNELS } from '../shared/types';
+import { registerAdapterHandlers } from './ipc/adapterHandlers';
+import { logAdapters } from './network/adapterDetector';
 
 let mainWindow: BrowserWindow | null = null;
 
@@ -20,6 +22,7 @@ function createWindow(): void {
     backgroundColor: '#1a1a2e',
   });
 
+  // Load the renderer
   if (process.env.NODE_ENV === 'development') {
     mainWindow.loadURL('http://localhost:3000');
     mainWindow.webContents.openDevTools();
@@ -27,15 +30,24 @@ function createWindow(): void {
     mainWindow.loadFile(path.join(__dirname, '../renderer/index.html'));
   }
 
-  mainWindow.once('ready-to-show', () => mainWindow?.show());
-  mainWindow.on('closed', () => { mainWindow = null; });
+  mainWindow.once('ready-to-show', () => {
+    mainWindow?.show();
+  });
+
+  mainWindow.on('closed', () => {
+    mainWindow = null;
+  });
 }
 
+// App lifecycle
 app.whenReady().then(() => {
-  registerNetworkHandlers();
+  // Register all IPC handlers before creating the window
+  registerAdapterHandlers();
+
+  // Log detected adapters to console on startup (dev aid)
+  logAdapters();
+
   createWindow();
-  // Start real-time monitoring after window is ready
-  startMonitoring();
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
@@ -43,15 +55,15 @@ app.whenReady().then(() => {
 });
 
 app.on('window-all-closed', () => {
-  stopMonitoring();
   if (process.platform !== 'darwin') app.quit();
 });
 
-// Theme IPC
-ipcMain.handle('get-theme', () =>
-  nativeTheme.shouldUseDarkColors ? 'dark' : 'light'
-);
-ipcMain.handle('set-theme', (_event, theme: 'dark' | 'light' | 'system') => {
+// IPC: theme
+ipcMain.handle(IPC_CHANNELS.GET_THEME, () => {
+  return nativeTheme.shouldUseDarkColors ? 'dark' : 'light';
+});
+
+ipcMain.handle(IPC_CHANNELS.SET_THEME, (_event, theme: 'dark' | 'light' | 'system') => {
   nativeTheme.themeSource = theme;
   return nativeTheme.shouldUseDarkColors ? 'dark' : 'light';
 });

@@ -11,6 +11,7 @@
   --success: #4caf50;
   --warning: #ff9800;
   --error: #f44336;
+  --code-bg: #0d1b2a;
 }
 
 .app-root.light {
@@ -21,13 +22,10 @@
   --text-secondary: #555570;
   --accent: #e94560;
   --border: #d0d0e0;
+  --code-bg: #eef0f5;
 }
 
-* {
-  margin: 0;
-  padding: 0;
-  box-sizing: border-box;
-}
+* { margin: 0; padding: 0; box-sizing: border-box; }
 
 body {
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
@@ -84,22 +82,84 @@ body {
   overflow-y: auto;
 }
 
-.placeholder-panel {
+/* Adapters panel */
+.adapters-panel {
+  max-width: 800px;
+}
+
+.section-title {
+  font-size: 16px;
+  font-weight: 600;
+  margin-bottom: 16px;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+
+.status-msg {
+  color: var(--text-secondary);
+  font-style: italic;
+  padding: 12px 0;
+}
+
+.adapter-list {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-bottom: 24px;
+}
+
+.adapter-card {
   background: var(--bg-card);
   border: 1px solid var(--border);
   border-radius: 10px;
-  padding: 32px;
-  max-width: 600px;
+  padding: 16px 20px;
 }
 
-.placeholder-panel h2 {
-  font-size: 20px;
-  margin-bottom: 12px;
-  color: var(--text-primary);
+.adapter-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
 }
 
-.placeholder-panel p {
+.adapter-icon { font-size: 18px; }
+
+.adapter-name {
+  font-weight: 600;
+  font-size: 15px;
+  flex: 1;
+}
+
+.adapter-status-badge {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.8px;
+}
+
+.adapter-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  font-size: 13px;
   color: var(--text-secondary);
-  line-height: 1.6;
-  margin-bottom: 8px;
+}
+
+.adapter-meta code {
+  background: var(--code-bg);
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-family: 'Courier New', monospace;
+}
+
+.sprint-note {
+  margin-top: 8px;
+  padding: 12px 16px;
+  border-left: 3px solid var(--accent);
+  background: var(--bg-card);
+  border-radius: 0 8px 8px 0;
+  font-size: 13px;
+  color: var(--text-secondary);
 }
