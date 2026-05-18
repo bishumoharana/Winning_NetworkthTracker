@@ -3,8 +3,8 @@
  */
 import Database from 'better-sqlite3';
 import * as os   from 'os';
-import * as path from 'path';
 import * as fs   from 'fs';
+import * as path from 'path';
 import { _setDbForTest } from '../db/database';
 import { CREATE_APP_CONFIG, DEFAULT_CONFIG } from '../db/schema';
 
@@ -22,9 +22,6 @@ jest.mock('electron', () => ({
 }));
 
 // Use a temp dir for the Linux desktop file
-const TMP_AUTOSTART = path.join(os.tmpdir(), 'nt-test-autostart');
-
-// Patch AUTOSTART_DIR before the module loads
 jest.mock('os', () => ({
   ...jest.requireActual('os'),
   homedir: () => path.join(os.tmpdir(), 'nt-test-home'),

@@ -10,7 +10,6 @@ import {
   evaluateMetrics,
   _resetCooldowns,
   AlertConfig,
-  AlertFired,
 } from '../alerts/alertsService';
 import {
   CREATE_APP_CONFIG,
