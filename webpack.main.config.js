@@ -24,6 +24,7 @@ module.exports = {
     filename: 'main.js',
     path: path.resolve(__dirname, 'build/main'),
   },
+  // Required so __dirname resolves correctly in Electron main process
   node: {
     __dirname: false,
     __filename: false,

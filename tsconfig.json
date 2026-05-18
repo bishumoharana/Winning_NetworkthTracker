@@ -1,3 +1,5 @@
+// Base tsconfig — extended by tsconfig.main.json and tsconfig.renderer.json
+// This file is used by editors (VSCode) and Jest for type-checking the whole project
 {
   "compilerOptions": {
     "target": "ES2020",
@@ -9,6 +11,9 @@
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
     "resolveJsonModule": true,
+    "declaration": true,
+    "declarationMap": true,
+    "sourceMap": true,
     "outDir": "./build",
     "rootDir": "./src",
     "baseUrl": "./src",
@@ -19,5 +24,5 @@
     }
   },
   "include": ["src/**/*"],
-  "exclude": ["node_modules", "dist", "build"]
+  "exclude": ["node_modules", "dist", "build", "coverage"]
 }

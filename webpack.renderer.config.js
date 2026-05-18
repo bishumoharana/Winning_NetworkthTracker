@@ -13,7 +13,7 @@ module.exports = {
         exclude: /node_modules/,
       },
       {
-        test: /\.css$/,
+        test: /\.css$/i,
         use: ['style-loader', 'css-loader'],
       },
     ],
@@ -28,14 +28,19 @@ module.exports = {
   output: {
     filename: 'renderer.js',
     path: path.resolve(__dirname, 'build/renderer'),
+    // Ensures HtmlWebpackPlugin writes index.html here too
+    clean: true,
   },
   plugins: [
     new HtmlWebpackPlugin({
       template: './src/renderer/index.html',
+      filename: 'index.html',
+      inject: 'body',
     }),
   ],
   devServer: {
     port: 3000,
     hot: true,
+    static: path.resolve(__dirname, 'build/renderer'),
   },
 };
