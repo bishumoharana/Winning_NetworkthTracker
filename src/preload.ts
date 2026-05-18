@@ -1,6 +1,7 @@
 import { contextBridge, ipcRenderer } from 'electron';
 import { IPC_CHANNELS, NetworkMetric } from './shared/types';
 import { ExportOptions, ExportResult } from './main/export/exportService';
+import { Period, StatsRow, SummaryRow } from './main/stats/statsService';
 
 contextBridge.exposeInMainWorld('electronAPI', {
   // Network
@@ -13,7 +14,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   },
 
   // Alerts
-  getAlertConfig:  ()           => ipcRenderer.invoke('alerts:get-config'),
+  getAlertConfig:  ()            => ipcRenderer.invoke('alerts:get-config'),
   saveAlertConfig: (cfg: unknown) => ipcRenderer.invoke('alerts:save-config', cfg),
 
   // Export
@@ -24,8 +25,14 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   // Startup
   startupAPI: {
-    get: ()                  => ipcRenderer.invoke('startup:get') as Promise<boolean>,
-    set: (enabled: boolean)  => ipcRenderer.invoke('startup:set', enabled) as Promise<boolean>,
+    get: ()                 => ipcRenderer.invoke('startup:get') as Promise<boolean>,
+    set: (enabled: boolean) => ipcRenderer.invoke('startup:set', enabled) as Promise<boolean>,
+  },
+
+  // Stats / History
+  statsAPI: {
+    get:        (period: Period, adapterId?: string) => ipcRenderer.invoke('stats:get', period, adapterId) as Promise<StatsRow[]>,
+    getSummary: (period: Period)                     => ipcRenderer.invoke('stats:summary', period) as Promise<SummaryRow>,
   },
 
   // Theme
