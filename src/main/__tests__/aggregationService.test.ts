@@ -169,10 +169,6 @@ describe('pruneAggregatedMetrics', () => {
   function insertAgg(ts: number) {
     const row = aggregateAdapter('eth0', ts - 1000, ts);
     if (row) {
-      // Insert directly via queryAggregated helper is read-only;
-      // re-insert via aggregationService persist path is OK since
-      // aggregateAll writes to DB internally.
-      // We insert a raw metric in the window and call aggregateAll to persist.
       insertMetric(makeMetric({ timestamp: ts - 500 }));
       aggregateAll(ts - 1000, ts);
     } else {
@@ -220,16 +216,18 @@ describe('readRetentionConfig', () => {
 
 // -------------------------------------------------------------------------
 // queryAggregated round-trip
+// Fix: queryAggregated takes a query object, not positional args.
+// Signature: queryAggregated(query?: AggregatedQuery) => AggregatedMetric[]
 // -------------------------------------------------------------------------
 describe('queryAggregated', () => {
   it('returns empty array before any aggregation', () => {
-    expect(queryAggregated('eth0', WIN_START, NOW)).toEqual([]);
+    expect(queryAggregated({ adapterName: 'eth0', since: WIN_START, until: NOW })).toEqual([]);
   });
 
   it('returns persisted aggregated rows after aggregateAll', () => {
     insertMetric(makeMetric({ timestamp: NOW - 1000 }));
     aggregateAll(WIN_START, NOW);
-    const rows = queryAggregated('eth0', WIN_START, NOW);
+    const rows = queryAggregated({ adapterName: 'eth0', since: WIN_START, until: NOW });
     expect(rows.length).toBeGreaterThan(0);
   });
 });

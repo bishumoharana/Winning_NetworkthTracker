@@ -78,7 +78,10 @@ describe('inferAdapterStatus', () => {
     mac: 'aa:bb:cc:dd:ee:ff',
     internal,
     cidr: null,
-  });
+    // scopeid is required by @types/node for NetworkInterfaceInfoIPv6.
+    // Providing 0 satisfies the type for both IPv4 and IPv6 mocks.
+    scopeid: 0,
+  } as os.NetworkInterfaceInfo);
 
   it('returns active when IPv4 address present and external', () => {
     expect(inferAdapterStatus([makeIface('IPv4', '192.168.1.10')])).toBe('active');

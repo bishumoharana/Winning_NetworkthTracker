@@ -53,6 +53,10 @@ module.exports = {
     // See src/__mocks__/better-sqlite3.ts for full explanation.
     '^better-sqlite3$': '<rootDir>/src/__mocks__/better-sqlite3.ts',
 
+    // systeminformation: makes real OS/network calls that fail in CI.
+    // Tests that need specific behaviour use jest.mock() with custom returns.
+    '^systeminformation$': '<rootDir>/src/__mocks__/systeminformation.ts',
+
     // adapterDetector: calls os.networkInterfaces() — mock for isolation
     '^.*/network/adapterDetector$': '<rootDir>/src/__mocks__/adapterDetector.ts',
   },

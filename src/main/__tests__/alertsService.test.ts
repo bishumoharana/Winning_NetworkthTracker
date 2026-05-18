@@ -21,7 +21,8 @@ import { NetworkMetric } from '../../shared/types';
 const mockShow = jest.fn();
 jest.mock('electron', () => ({
   Notification: class MockNotification {
-    static isSupported = () => true;
+    // Explicit type annotation required to avoid TS7022 circular inference.
+    static isSupported: () => boolean = () => true;
     show = mockShow;
     constructor(_opts: unknown) {}
   },

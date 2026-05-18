@@ -11,9 +11,6 @@
  *     been rebuilt for the current Node ABI (local dev after @electron/rebuild).
  *   - Fall back to an in-memory stub for CI where only the Electron ABI binary
  *     is present.
- *
- * NOTE: The correct Jest API is jest.requireActual(), NOT require.requireActual()
- * which does not exist and always throws.
  */
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -30,11 +27,11 @@ if (RealDatabase) {
 } else {
   // ── Stub used in CI ────────────────────────────────────────────────────
   const makeStmt = () => ({
-    run:  jest.fn().mockReturnValue({ changes: 1, lastInsertRowid: 1 }),
-    get:  jest.fn().mockReturnValue(undefined),
-    all:  jest.fn().mockReturnValue([]),
+    run:   jest.fn().mockReturnValue({ changes: 1, lastInsertRowid: 1 }),
+    get:   jest.fn().mockReturnValue(undefined),
+    all:   jest.fn().mockReturnValue([]),
     pluck: jest.fn().mockReturnThis(),
-    bind: jest.fn().mockReturnThis(),
+    bind:  jest.fn().mockReturnThis(),
   });
 
   class DatabaseStub {
@@ -45,5 +42,10 @@ if (RealDatabase) {
     transaction = jest.fn().mockImplementation((fn: (...args: any[]) => any) => fn);
   }
 
+  // Export as both default and named so that:
+  //   import Database from 'better-sqlite3'          (ESM default)
+  //   const Database = require('better-sqlite3')      (CJS)
+  // both resolve to the constructor.
+  (DatabaseStub as any).default = DatabaseStub;
   module.exports = DatabaseStub;
 }
