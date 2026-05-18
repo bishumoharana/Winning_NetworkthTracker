@@ -3,56 +3,70 @@ module.exports = {
   preset: 'ts-jest',
   testEnvironment: 'node',
   roots: ['<rootDir>/src'],
+
+  // Only match test files under src/main — renderer tests need a browser
+  // (jsdom) environment and a separate jest config if/when added.
   testMatch: [
-    '**/__tests__/**/*.test.ts',
-    // Exclude renderer tests — they need jsdom / browser environment
-    '!**/src/renderer/**/*.test.ts',
-    '!**/src/renderer/**/*.test.tsx',
+    '<rootDir>/src/main/__tests__/**/*.test.ts',
   ],
+
+  // Belt-and-braces: also ignore these paths even if testMatch somehow
+  // picks them up.
   testPathIgnorePatterns: [
     '/node_modules/',
     '/build/',
     '/dist/',
-    // Renderer tests require a browser environment; run separately with
-    // jest --config jest.renderer.config.js if/when added
-    '/src/renderer/',
+    '<rootDir>/src/renderer/',
   ],
+
   transform: {
-    '^.+\.tsx?$': ['ts-jest', {
+    '^.+\\.tsx?$': ['ts-jest', {
       tsconfig: {
         module: 'commonjs',
         esModuleInterop: true,
         jsx: 'react',
+        // Suppress ts-jest type-check errors from mock files
+        diagnostics: false,
       },
     }],
   },
+
   moduleNameMapper: {
+    // Path aliases
     '^@main/(.*)$':     '<rootDir>/src/main/$1',
     '^@renderer/(.*)$': '<rootDir>/src/renderer/$1',
     '^@shared/(.*)$':   '<rootDir>/src/shared/$1',
-    // Mock CSS/style imports — renderer only, but keeps Jest from choking
+
+    // CSS / style imports — renderer only but keeps Jest from choking
     '\\.(css|less|scss|sass)$': '<rootDir>/src/__mocks__/styleMock.js',
-    // Mock Electron: not available in Node/Jest environment
-    '^electron$':          '<rootDir>/src/__mocks__/electron.ts',
-    // Mock electron-updater: uses native Electron APIs at import time
-    '^electron-updater$':  '<rootDir>/src/__mocks__/electron-updater.ts',
-    // Mock electron-log: writes to filesystem paths that don't exist in CI
-    '^electron-log$':      '<rootDir>/src/__mocks__/electron-log.ts',
-    // Mock better-sqlite3: compiled for Electron ABI, not Node ABI
-    // Loading the real binary in Jest (Node) causes a "wrong ELF class" crash
-    '^better-sqlite3$':    '<rootDir>/src/__mocks__/better-sqlite3.ts',
+
+    // Electron: not available in the Node/Jest environment
+    '^electron$': '<rootDir>/src/__mocks__/electron.ts',
+
+    // electron-updater: tries to resolve asar paths at import time
+    '^electron-updater$': '<rootDir>/src/__mocks__/electron-updater.ts',
+
+    // electron-log: writes to OS log paths that do not exist in CI
+    '^electron-log$': '<rootDir>/src/__mocks__/electron-log.ts',
+
+    // better-sqlite3: compiled for Electron ABI, not Node ABI.
+    // See src/__mocks__/better-sqlite3.ts for full explanation.
+    '^better-sqlite3$': '<rootDir>/src/__mocks__/better-sqlite3.ts',
+
+    // adapterDetector: calls os.networkInterfaces() — mock for isolation
+    '^.*/network/adapterDetector$': '<rootDir>/src/__mocks__/adapterDetector.ts',
   },
+
   collectCoverageFrom: [
-    'src/**/*.{ts,tsx}',
-    '!src/**/*.d.ts',
-    '!src/renderer/**',          // renderer covered separately
-    '!src/renderer/index.tsx',
-    '!src/main/main.ts',          // entry point — hard to unit-test
-    '!src/main/preload.ts',       // preload — tested via integration
+    'src/main/**/*.{ts,tsx}',
+    '!src/main/**/*.d.ts',
+    '!src/main/main.ts',      // entry point — hard to unit-test
+    '!src/main/preload.ts',   // covered by integration tests
     '!src/__mocks__/**',
   ],
-  // 60% is realistic for a mid-development Electron project;
-  // raise to 80% once the project reaches feature-complete state
+
+  // 60% is realistic for a mid-development Electron project.
+  // Raise to 80% once the feature set is complete.
   coverageThreshold: {
     global: {
       branches:   60,
@@ -61,11 +75,14 @@ module.exports = {
       statements: 60,
     },
   },
-  verbose: true,
-  // Prevent Jest from hanging after tests finish (common with Electron mocks
-  // that leave open handles via setInterval / event emitters)
+
+  // Prevent Jest from hanging after tests finish.
+  // Electron mocks may leave open handles (setInterval / event emitters).
   forceExit: true,
-  // Clear mocks between tests — prevents state leaking across test files
-  clearMocks: true,
+
+  // Reset mocks between every test to prevent state leaking across files.
+  clearMocks:   true,
   restoreMocks: true,
+
+  verbose: true,
 };

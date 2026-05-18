@@ -1,54 +1,49 @@
 /**
  * Jest mock for better-sqlite3.
  *
- * better-sqlite3 is compiled against the Electron ABI, not the Node ABI,
- * so loading the real native binary inside Jest (which runs in plain Node)
- * causes an immediate crash: "was compiled against a different Node.js version".
+ * better-sqlite3 compiles its native binary against the Electron ABI.
+ * When Jest runs in plain Node the ABIs do not match and loading the real
+ * binary crashes immediately with "was compiled against a different Node.js
+ * version".
  *
- * This mock provides the same interface as the real Database class so that
- * tests that call _setDbForTest() with a REAL in-memory Database can still
- * do so (metricsRepository.test.ts imports Database directly and constructs
- * a real instance), while tests that merely import modules which happen to
- * import better-sqlite3 at module scope don't crash.
+ * Strategy:
+ *   - Try jest.requireActual('better-sqlite3') — works when the binary has
+ *     been rebuilt for the current Node ABI (local dev after @electron/rebuild).
+ *   - Fall back to an in-memory stub for CI where only the Electron ABI binary
+ *     is present.
  *
- * IMPORTANT: metricsRepository.test.ts constructs `new Database(':memory:')`
- * directly, so this mock is intentionally a pass-through that re-exports
- * the real module when available, falling back to a stub when not.
+ * NOTE: The correct Jest API is jest.requireActual(), NOT require.requireActual()
+ * which does not exist and always throws.
  */
 
-let RealDatabase: typeof import('better-sqlite3') | undefined;
+/* eslint-disable @typescript-eslint/no-explicit-any */
+
+let RealDatabase: any;
 try {
-  // Try to load the real module (works when rebuilt for the current Node ABI,
-  // e.g. in a local dev environment where @electron/rebuild was run for Node).
-  // eslint-disable-next-line @typescript-eslint/no-var-requires
-  RealDatabase = require.requireActual('better-sqlite3');
+  RealDatabase = jest.requireActual('better-sqlite3');
 } catch {
-  RealDatabase = undefined;
+  RealDatabase = null;
 }
 
 if (RealDatabase) {
   module.exports = RealDatabase;
 } else {
-  // Full stub — used in CI where the binary is compiled for Electron ABI only
-  interface StmtMock {
-    run: jest.Mock;
-    get: jest.Mock;
-    all: jest.Mock;
-  }
-
-  const makeStmt = (): StmtMock => ({
-    run: jest.fn().mockReturnValue({ changes: 1, lastInsertRowid: 1 }),
-    get: jest.fn().mockReturnValue(undefined),
-    all: jest.fn().mockReturnValue([]),
+  // ── Stub used in CI ────────────────────────────────────────────────────
+  const makeStmt = () => ({
+    run:  jest.fn().mockReturnValue({ changes: 1, lastInsertRowid: 1 }),
+    get:  jest.fn().mockReturnValue(undefined),
+    all:  jest.fn().mockReturnValue([]),
+    pluck: jest.fn().mockReturnThis(),
+    bind: jest.fn().mockReturnThis(),
   });
 
-  class DatabaseMock {
-    pragma  = jest.fn();
-    exec    = jest.fn();
-    close   = jest.fn();
-    prepare = jest.fn().mockImplementation(() => makeStmt());
-    transaction = jest.fn().mockImplementation((fn: () => void) => fn);
+  class DatabaseStub {
+    pragma      = jest.fn();
+    exec        = jest.fn();
+    close       = jest.fn();
+    prepare     = jest.fn().mockImplementation(() => makeStmt());
+    transaction = jest.fn().mockImplementation((fn: (...args: any[]) => any) => fn);
   }
 
-  module.exports = DatabaseMock;
+  module.exports = DatabaseStub;
 }

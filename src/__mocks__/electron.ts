@@ -1,27 +1,46 @@
 /**
- * Comprehensive Electron mock for Jest (Node test environment).
- * All Electron APIs are unavailable in plain Node — this stub satisfies
- * every import in src/main/** without crashing.
+ * Jest mock for the 'electron' package.
+ *
+ * Electron is not available in a plain Node / Jest environment.
+ * Every Electron API used across src/main/** is stubbed here so that
+ * module imports never crash during testing.
+ *
+ * Tests that need specific behaviour override individual mocks inline
+ * via jest.mock('electron', () => ({ ... })).
  */
 
-const mockSend        = jest.fn();
-const mockIsDestroyed = jest.fn().mockReturnValue(false);
+/* eslint-disable @typescript-eslint/no-explicit-any */
+
+const mockSend         = jest.fn();
+const mockIsDestroyed  = jest.fn().mockReturnValue(false);
 const mockOpenDevTools = jest.fn();
 
 class BrowserWindowMock {
-  loadFile   = jest.fn();
-  loadURL    = jest.fn();
-  once       = jest.fn();
-  on         = jest.fn();
-  show       = jest.fn();
+  loadFile    = jest.fn();
+  loadURL     = jest.fn();
+  once        = jest.fn();
+  on          = jest.fn();
+  show        = jest.fn();
+  hide        = jest.fn();
+  focus       = jest.fn();
+  restore     = jest.fn();
+  isMinimized = jest.fn().mockReturnValue(false);
+  isVisible   = jest.fn().mockReturnValue(true);
   isDestroyed = mockIsDestroyed;
   webContents = {
-    send:          mockSend,
-    openDevTools:  mockOpenDevTools,
-    on:            jest.fn(),
+    send:         mockSend,
+    openDevTools: mockOpenDevTools,
+    on:           jest.fn(),
   };
-  static getAllWindows = jest.fn().mockReturnValue([]);
+  static getAllWindows    = jest.fn().mockReturnValue([]);
   static fromWebContents = jest.fn();
+}
+
+class MenuItemMock {
+  checked = false;
+  constructor(opts: any) {
+    Object.assign(this, opts);
+  }
 }
 
 const electron = {
@@ -40,8 +59,8 @@ const electron = {
   },
   BrowserWindow: BrowserWindowMock,
   ipcMain: {
-    handle: jest.fn(),
-    on:     jest.fn(),
+    handle:        jest.fn(),
+    on:            jest.fn(),
     removeHandler: jest.fn(),
   },
   ipcRenderer: {
@@ -63,23 +82,32 @@ const electron = {
     openPath:     jest.fn(),
   },
   Menu: {
-    buildFromTemplate: jest.fn().mockReturnValue({ popup: jest.fn() }),
+    buildFromTemplate:  jest.fn().mockReturnValue({ popup: jest.fn() }),
     setApplicationMenu: jest.fn(),
   },
+  MenuItem: MenuItemMock,
   Tray: jest.fn().mockImplementation(() => ({
-    setToolTip:       jest.fn(),
-    setContextMenu:   jest.fn(),
-    on:               jest.fn(),
-    destroy:          jest.fn(),
+    setToolTip:     jest.fn(),
+    setTitle:       jest.fn(),
+    setContextMenu: jest.fn(),
+    on:             jest.fn(),
+    destroy:        jest.fn(),
   })),
-  Notification: jest.fn().mockImplementation(() => ({
-    show: jest.fn(),
-    on:   jest.fn(),
-  })),
+  nativeImage: {
+    createEmpty:       jest.fn().mockReturnValue({}),
+    createFromPath:    jest.fn().mockReturnValue({}),
+    createFromBuffer:  jest.fn().mockReturnValue({}),
+  },
+  Notification: class MockNotification {
+    static isSupported = jest.fn().mockReturnValue(true);
+    show = jest.fn();
+    on   = jest.fn();
+    constructor(_opts: any) {}
+  },
   dialog: {
     showSaveDialog: jest.fn().mockResolvedValue({ canceled: false, filePath: '/tmp/export.csv' }),
     showOpenDialog: jest.fn().mockResolvedValue({ canceled: false, filePaths: [] }),
-    showMessageBox:  jest.fn().mockResolvedValue({ response: 0 }),
+    showMessageBox: jest.fn().mockResolvedValue({ response: 0 }),
   },
 };
 

@@ -1,6 +1,6 @@
 /**
  * Jest mock for electron-log.
- * The real module writes to OS-specific log paths that don't exist in CI.
+ * The real module writes to OS-specific log paths that do not exist in CI.
  */
 const log = {
   info:    jest.fn(),
@@ -12,4 +12,3 @@ const log = {
 };
 
 module.exports = log;
-export default log;

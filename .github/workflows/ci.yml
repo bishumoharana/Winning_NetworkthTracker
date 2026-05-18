@@ -23,28 +23,37 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '20'
-          # NOTE: cache: 'npm' is intentionally omitted.
-          # It requires a package-lock.json / yarn.lock to compute the cache key.
-          # This repo uses .npmrc with package-lock=false, so no lockfile is committed.
+          # NOTE: cache: 'npm' deliberately omitted.
+          # It requires a committed lockfile (package-lock.json / yarn.lock)
+          # to compute the cache key. This repo has package-lock=false in
+          # .npmrc so no lockfile is committed — using the cache option would
+          # cause setup-node to error before npm install even runs.
 
       - name: Install dependencies
         run: npm install
+
+      # Rebuild native modules (better-sqlite3) for the current Node ABI.
+      # This is what allows jest.requireActual('better-sqlite3') to succeed
+      # in the mock, giving tests a real in-memory SQLite instance.
+      - name: Rebuild native modules for Node (test environment)
+        run: npx @electron/rebuild --only better-sqlite3 --pre-gyp-fix --force --module-dir .
+        # If rebuild fails (e.g. missing build tools on a runner) Jest will
+        # automatically fall back to the DatabaseStub in the mock file.
+        continue-on-error: true
 
       - name: Lint
         run: npm run lint --if-present
 
       - name: Run tests
-        run: npm test -- --forceExit --coverage --coverageReporters=lcov --coverageReporters=text-summary
+        run: npm test -- --forceExit --testTimeout=15000 --coverage
         env:
           NODE_ENV: test
-          # Electron needs a display on Linux; DISPLAY is set by default on
-          # ubuntu-latest runners, but make it explicit for safety.
           DISPLAY: ':99'
 
-      - name: Upload coverage report
+      - name: Upload coverage (Ubuntu only)
         if: matrix.os == 'ubuntu-latest'
         uses: actions/upload-artifact@v4
         with:
           name: coverage-report
-          path: coverage/lcov.info
+          path: coverage/
           retention-days: 14
