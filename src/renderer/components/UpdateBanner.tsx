@@ -8,18 +8,6 @@ type UpdateStatus =
   | { type: 'downloaded';    version: string }
   | { type: 'error';         message: string };
 
-declare global {
-  interface Window {
-    electronAPI: {
-      updaterAPI: {
-        check:    ()  => Promise<void>;
-        install:  ()  => Promise<void>;
-        onStatus: (cb: (s: UpdateStatus) => void) => () => void;
-      };
-    };
-  }
-}
-
 function fmtBytes(b: number): string {
   if (b >= 1_048_576) return `${(b / 1_048_576).toFixed(1)} MB`;
   if (b >= 1_024)     return `${(b / 1_024).toFixed(0)} KB`;
@@ -35,12 +23,12 @@ const base: React.CSSProperties = {
 };
 
 const themes: Record<string, React.CSSProperties> = {
-  checking:      { ...base, background: '#1e293b', border: '1px solid #334155', color: '#94a3b8' },
-  available:     { ...base, background: '#0c4a6e', border: '1px solid #0284c7', color: '#e0f2fe' },
-  progress:      { ...base, background: '#0c4a6e', border: '1px solid #0284c7', color: '#e0f2fe' },
-  downloaded:    { ...base, background: '#052e16', border: '1px solid #166534', color: '#bbf7d0' },
+  checking:        { ...base, background: '#1e293b', border: '1px solid #334155', color: '#94a3b8' },
+  available:       { ...base, background: '#0c4a6e', border: '1px solid #0284c7', color: '#e0f2fe' },
+  progress:        { ...base, background: '#0c4a6e', border: '1px solid #0284c7', color: '#e0f2fe' },
+  downloaded:      { ...base, background: '#052e16', border: '1px solid #166534', color: '#bbf7d0' },
   'not-available': { ...base, background: '#1e293b', border: '1px solid #334155', color: '#64748b' },
-  error:         { ...base, background: '#2d0a0a', border: '1px solid #991b1b', color: '#fca5a5' },
+  error:           { ...base, background: '#2d0a0a', border: '1px solid #991b1b', color: '#fca5a5' },
 };
 
 export const UpdateBanner: React.FC = () => {
@@ -51,7 +39,6 @@ export const UpdateBanner: React.FC = () => {
     const unsub = window.electronAPI.updaterAPI.onStatus((s) => {
       setStatus(s);
       setVisible(true);
-      // Auto-dismiss 'not-available' after 4s
       if (s.type === 'not-available') {
         setTimeout(() => setVisible(false), 4_000);
       }

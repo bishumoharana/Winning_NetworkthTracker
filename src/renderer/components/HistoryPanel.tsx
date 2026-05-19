@@ -17,18 +17,6 @@ interface SummaryRow {
   sampleCount: number; adapterCount: number;
 }
 
-declare global {
-  interface Window {
-    electronAPI: {
-      statsAPI: {
-        get:        (period: Period, adapterId?: string) => Promise<StatsRow[]>;
-        getSummary: (period: Period)                     => Promise<SummaryRow>;
-      };
-      exportAPI: { getAdapters: () => Promise<{ adapterId: string; adapterName: string }[]> };
-    };
-  }
-}
-
 function fmtBytes(b: number): string {
   if (b >= 1_073_741_824) return `${(b / 1_073_741_824).toFixed(2)} GB`;
   if (b >= 1_048_576)     return `${(b / 1_048_576).toFixed(2)} MB`;
@@ -49,30 +37,33 @@ const PERIODS: { key: Period; label: string }[] = [
   { key: 'month', label: 'This Month' },
 ];
 
-const c: Record<string, React.CSSProperties> = {
-  panel:   { padding: '28px 32px', fontFamily: 'system-ui, sans-serif', color: '#e2e8f0', minWidth: 0 },
-  heading: { fontSize: '1.2rem', fontWeight: 700, color: '#f8fafc', marginBottom: '20px' },
-  toolbar: { display: 'flex', gap: '12px', alignItems: 'center', marginBottom: '20px', flexWrap: 'wrap' },
-  tabRow:  { display: 'flex', gap: '6px' },
-  tab:     (active: boolean): React.CSSProperties => ({
+function tabStyle(active: boolean): React.CSSProperties {
+  return {
     padding: '7px 16px', borderRadius: '6px', border: '1px solid',
     borderColor: active ? '#38bdf8' : '#334155',
-    background: active ? '#0c4a6e' : '#1e293b',
-    color: active ? '#f0f9ff' : '#94a3b8',
-    fontWeight: active ? 700 : 400, cursor: 'pointer', fontSize: '0.88rem',
-  }),
-  select:  { padding: '7px 12px', borderRadius: '6px', border: '1px solid #334155', background: '#1e293b', color: '#e2e8f0', fontSize: '0.88rem' },
+    background:  active ? '#0c4a6e' : '#1e293b',
+    color:       active ? '#f0f9ff' : '#94a3b8',
+    fontWeight:  active ? 700 : 400,
+    cursor: 'pointer', fontSize: '0.88rem',
+  };
+}
+
+const c: Record<string, React.CSSProperties> = {
+  panel:      { padding: '28px 32px', fontFamily: 'system-ui, sans-serif', color: '#e2e8f0', minWidth: 0 },
+  heading:    { fontSize: '1.2rem', fontWeight: 700, color: '#f8fafc', marginBottom: '20px' },
+  toolbar:    { display: 'flex', gap: '12px', alignItems: 'center', marginBottom: '20px', flexWrap: 'wrap' },
+  tabRow:     { display: 'flex', gap: '6px' },
+  select:     { padding: '7px 12px', borderRadius: '6px', border: '1px solid #334155', background: '#1e293b', color: '#e2e8f0', fontSize: '0.88rem' },
   summaryBar: { display: 'flex', gap: '16px', flexWrap: 'wrap', marginBottom: '20px' },
-  kpi:     { background: '#1e293b', border: '1px solid #334155', borderRadius: '8px', padding: '12px 18px', minWidth: '130px' },
-  kpiVal:  { fontSize: '1.1rem', fontWeight: 700, color: '#38bdf8' },
-  kpiLbl:  { fontSize: '0.72rem', color: '#64748b', textTransform: 'uppercase' as const, letterSpacing: '0.05em', marginTop: '2px' },
-  tableWrap: { overflowX: 'auto' as const },
-  table:   { width: '100%', borderCollapse: 'collapse' as const, fontSize: '0.88rem' },
-  th:      { padding: '10px 14px', textAlign: 'left' as const, borderBottom: '1px solid #334155', color: '#64748b', fontWeight: 600, fontSize: '0.78rem', textTransform: 'uppercase' as const, letterSpacing: '0.04em', whiteSpace: 'nowrap' as const },
-  td:      { padding: '10px 14px', borderBottom: '1px solid #1e293b', color: '#e2e8f0', whiteSpace: 'nowrap' as const },
-  trHover: { background: '#1e293b' },
-  empty:   { textAlign: 'center' as const, padding: '48px 24px', color: '#475569' },
-  emptyIcon: { fontSize: '2.5rem', marginBottom: '10px' },
+  kpi:        { background: '#1e293b', border: '1px solid #334155', borderRadius: '8px', padding: '12px 18px', minWidth: '130px' },
+  kpiVal:     { fontSize: '1.1rem', fontWeight: 700, color: '#38bdf8' },
+  kpiLbl:     { fontSize: '0.72rem', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em', marginTop: '2px' },
+  tableWrap:  { overflowX: 'auto' },
+  table:      { width: '100%', borderCollapse: 'collapse', fontSize: '0.88rem' },
+  th:         { padding: '10px 14px', textAlign: 'left', borderBottom: '1px solid #334155', color: '#64748b', fontWeight: 600, fontSize: '0.78rem', textTransform: 'uppercase', letterSpacing: '0.04em', whiteSpace: 'nowrap' },
+  td:         { padding: '10px 14px', borderBottom: '1px solid #1e293b', color: '#e2e8f0', whiteSpace: 'nowrap' },
+  empty:      { textAlign: 'center', padding: '48px 24px', color: '#475569' },
+  emptyIcon:  { fontSize: '2.5rem', marginBottom: '10px' },
 };
 
 export const HistoryPanel: React.FC = () => {
@@ -83,7 +74,6 @@ export const HistoryPanel: React.FC = () => {
   const [summary,   setSummary]   = useState<SummaryRow | null>(null);
   const [loading,   setLoading]   = useState(false);
 
-  // Load adapter list once
   useEffect(() => {
     window.electronAPI.exportAPI.getAdapters()
       .then(setAdapters).catch(() => {});
@@ -108,11 +98,10 @@ export const HistoryPanel: React.FC = () => {
     <div style={c.panel}>
       <div style={c.heading}>Bandwidth History</div>
 
-      {/* Toolbar */}
       <div style={c.toolbar}>
         <div style={c.tabRow}>
           {PERIODS.map(p => (
-            <button key={p.key} style={c.tab(period === p.key)} onClick={() => setPeriod(p.key)}>
+            <button key={p.key} style={tabStyle(period === p.key)} onClick={() => setPeriod(p.key)}>
               {p.label}
             </button>
           ))}
@@ -125,7 +114,6 @@ export const HistoryPanel: React.FC = () => {
         </select>
       </div>
 
-      {/* Summary KPIs */}
       {summary && summary.sampleCount > 0 && (
         <div style={c.summaryBar}>
           <div style={c.kpi}><div style={c.kpiVal}>{fmtBytes(summary.totalBytesReceived)}</div><div style={c.kpiLbl}>Total Downloaded</div></div>
@@ -136,7 +124,6 @@ export const HistoryPanel: React.FC = () => {
         </div>
       )}
 
-      {/* Table */}
       {loading ? (
         <div style={c.empty}><div>Loading…</div></div>
       ) : rows.length === 0 ? (

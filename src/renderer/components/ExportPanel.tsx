@@ -3,47 +3,32 @@ import React, { useEffect, useState } from 'react';
 type Format = 'csv' | 'json';
 
 interface Adapter { adapterId: string; adapterName: string; }
-
 interface ExportResult { filePath: string; rowCount: number; }
 
-declare global {
-  interface Window {
-    electronAPI: {
-      exportAPI: {
-        run: (opts: object) => Promise<ExportResult>;
-        getAdapters: () => Promise<Adapter[]>;
-      };
-    };
-  }
-}
+// Static styles
+const styles = {
+  panel:    { padding: '32px', maxWidth: '560px', fontFamily: 'system-ui, sans-serif', color: '#e2e8f0' } as React.CSSProperties,
+  heading:  { fontSize: '1.25rem', fontWeight: 700, marginBottom: '24px', color: '#f8fafc' } as React.CSSProperties,
+  label:    { display: 'block', fontSize: '0.8rem', color: '#94a3b8', marginBottom: '6px', textTransform: 'uppercase' as const, letterSpacing: '0.05em' } as React.CSSProperties,
+  field:    { marginBottom: '20px' } as React.CSSProperties,
+  select:   { width: '100%', padding: '8px 12px', borderRadius: '6px', border: '1px solid #334155', background: '#1e293b', color: '#e2e8f0', fontSize: '0.95rem' } as React.CSSProperties,
+  input:    { width: '100%', padding: '8px 12px', borderRadius: '6px', border: '1px solid #334155', background: '#1e293b', color: '#e2e8f0', fontSize: '0.95rem' } as React.CSSProperties,
+  fmtRow:   { display: 'flex', gap: '12px', marginBottom: '24px' } as React.CSSProperties,
+  exportBtn:{ width: '100%', padding: '12px', borderRadius: '8px', border: 'none', background: '#0284c7', color: '#fff', fontWeight: 700, fontSize: '1rem', cursor: 'pointer' } as React.CSSProperties,
+  success:  { marginTop: '16px', padding: '12px 16px', borderRadius: '6px', background: '#052e16', border: '1px solid #166534', color: '#4ade80', fontSize: '0.88rem', wordBreak: 'break-all' as const } as React.CSSProperties,
+  error:    { marginTop: '16px', padding: '12px 16px', borderRadius: '6px', background: '#2d0a0a', border: '1px solid #991b1b', color: '#f87171', fontSize: '0.88rem' } as React.CSSProperties,
+};
 
-const styles: Record<string, React.CSSProperties> = {
-  panel: {
-    padding: '32px',
-    maxWidth: '560px',
-    fontFamily: 'system-ui, sans-serif',
-    color: '#e2e8f0',
-  },
-  heading: { fontSize: '1.25rem', fontWeight: 700, marginBottom: '24px', color: '#f8fafc' },
-  label:   { display: 'block', fontSize: '0.8rem', color: '#94a3b8', marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '0.05em' },
-  field:   { marginBottom: '20px' },
-  select:  { width: '100%', padding: '8px 12px', borderRadius: '6px', border: '1px solid #334155', background: '#1e293b', color: '#e2e8f0', fontSize: '0.95rem' },
-  input:   { width: '100%', padding: '8px 12px', borderRadius: '6px', border: '1px solid #334155', background: '#1e293b', color: '#e2e8f0', fontSize: '0.95rem' },
-  fmtRow:  { display: 'flex', gap: '12px', marginBottom: '24px' },
-  fmtBtn:  (active: boolean): React.CSSProperties => ({
+function fmtBtn(active: boolean): React.CSSProperties {
+  return {
     flex: 1, padding: '10px', borderRadius: '6px', border: '1px solid',
     borderColor: active ? '#38bdf8' : '#334155',
-    background: active ? '#0c4a6e' : '#1e293b',
-    color: active ? '#f0f9ff' : '#94a3b8',
-    fontWeight: active ? 700 : 400, cursor: 'pointer', fontSize: '0.95rem',
-  }),
-  exportBtn: {
-    width: '100%', padding: '12px', borderRadius: '8px', border: 'none',
-    background: '#0284c7', color: '#fff', fontWeight: 700, fontSize: '1rem', cursor: 'pointer',
-  },
-  success: { marginTop: '16px', padding: '12px 16px', borderRadius: '6px', background: '#052e16', border: '1px solid #166534', color: '#4ade80', fontSize: '0.88rem', wordBreak: 'break-all' },
-  error:   { marginTop: '16px', padding: '12px 16px', borderRadius: '6px', background: '#2d0a0a', border: '1px solid #991b1b', color: '#f87171', fontSize: '0.88rem' },
-};
+    background:  active ? '#0c4a6e' : '#1e293b',
+    color:       active ? '#f0f9ff' : '#94a3b8',
+    fontWeight:  active ? 700 : 400,
+    cursor: 'pointer', fontSize: '0.95rem',
+  };
+}
 
 export const ExportPanel: React.FC = () => {
   const [adapters,  setAdapters]  = useState<Adapter[]>([]);
@@ -103,8 +88,8 @@ export const ExportPanel: React.FC = () => {
 
       <label style={styles.label}>Format</label>
       <div style={styles.fmtRow}>
-        <button style={styles.fmtBtn(format === 'csv')}  onClick={() => setFormat('csv')}>CSV</button>
-        <button style={styles.fmtBtn(format === 'json')} onClick={() => setFormat('json')}>JSON</button>
+        <button style={fmtBtn(format === 'csv')}  onClick={() => setFormat('csv')}>CSV</button>
+        <button style={fmtBtn(format === 'json')} onClick={() => setFormat('json')}>JSON</button>
       </div>
 
       <button
