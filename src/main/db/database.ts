@@ -1,5 +1,6 @@
 import Database from 'better-sqlite3';
 import * as path from 'path';
+import { app } from 'electron';
 import {
   CREATE_NETWORK_METRICS,
   CREATE_NETWORK_METRICS_IDX_TIMESTAMP,
@@ -29,10 +30,6 @@ export function getDb(): Database.Database {
 export function initDatabase(): void {
   if (db) return; // already initialised
 
-  // Lazy-require electron so this module can be imported in Jest without
-  // needing a real Electron environment.
-  // eslint-disable-next-line @typescript-eslint/no-var-requires
-  const { app } = require('electron') as typeof import('electron');
   const dbPath = path.join(app.getPath('userData'), 'network-tracker.db');
 
   db = new Database(dbPath);
