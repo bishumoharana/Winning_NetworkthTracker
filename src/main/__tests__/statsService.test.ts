@@ -18,16 +18,16 @@ function seedDb(db: InstanceType<typeof Database>) {
   db.exec(CREATE_NETWORK_METRICS);
   const ins = db.prepare(
     `INSERT INTO network_metrics
-     (adapter_id, adapter_name, timestamp, bytes_sent, bytes_received, speed_up, speed_down)
+     (adapter_name, adapter_mac, timestamp, bytes_sent, bytes_received, speed_up, speed_down)
      VALUES (?, ?, ?, ?, ?, ?, ?)`
   );
   // eth0: 3 samples today
-  ins.run('eth0', 'Ethernet', REF - 10_000, 100, 200, 1000, 2000);
-  ins.run('eth0', 'Ethernet', REF,          200, 400, 3000, 4000);
-  ins.run('eth0', 'Ethernet', REF + 10_000, 150, 300, 2000, 3000);
+  ins.run('eth0', 'aa:bb:cc:dd:ee:01', REF - 10_000, 100, 200, 1000, 2000);
+  ins.run('eth0', 'aa:bb:cc:dd:ee:01', REF,          200, 400, 3000, 4000);
+  ins.run('eth0', 'aa:bb:cc:dd:ee:01', REF + 10_000, 150, 300, 2000, 3000);
   // wlan0: 2 samples today
-  ins.run('wlan0', 'Wi-Fi', REF - 5_000, 50,  80,  500,  800);
-  ins.run('wlan0', 'Wi-Fi', REF + 5_000, 70, 100,  700, 1000);
+  ins.run('wlan0', 'aa:bb:cc:dd:ee:02', REF - 5_000, 50,  80,  500,  800);
+  ins.run('wlan0', 'aa:bb:cc:dd:ee:02', REF + 5_000, 70, 100,  700, 1000);
 }
 
 beforeEach(() => {
@@ -62,7 +62,7 @@ describe('getPeriodBounds', () => {
 // ── getStats ─────────────────────────────────────────────────────────────────
 describe('getStats', () => {
   it('returns one row per adapter', () => {
-    const rows = getStats('day');
+    const rows = getStats('day', undefined, REF);
     expect(rows).toHaveLength(2);
     const ids = rows.map(r => r.adapterId);
     expect(ids).toContain('eth0');
@@ -70,49 +70,48 @@ describe('getStats', () => {
   });
 
   it('aggregates totalBytesSent correctly for eth0', () => {
-    const rows = getStats('day');
+    const rows = getStats('day', undefined, REF);
     const eth0 = rows.find(r => r.adapterId === 'eth0')!;
     expect(eth0.totalBytesSent).toBe(450);      // 100+200+150
     expect(eth0.totalBytesReceived).toBe(900);  // 200+400+300
   });
 
   it('calculates peakSpeedUp correctly', () => {
-    const eth0 = getStats('day').find(r => r.adapterId === 'eth0')!;
+    const eth0 = getStats('day', undefined, REF).find(r => r.adapterId === 'eth0')!;
     expect(eth0.peakSpeedUp).toBe(3000);
   });
 
   it('calculates peakSpeedDown correctly', () => {
-    const eth0 = getStats('day').find(r => r.adapterId === 'eth0')!;
+    const eth0 = getStats('day', undefined, REF).find(r => r.adapterId === 'eth0')!;
     expect(eth0.peakSpeedDown).toBe(4000);
   });
 
   it('calculates avgSpeedUp (integer) correctly', () => {
-    const eth0 = getStats('day').find(r => r.adapterId === 'eth0')!;
+    const eth0 = getStats('day', undefined, REF).find(r => r.adapterId === 'eth0')!;
     // (1000+3000+2000)/3 = 2000
     expect(eth0.avgSpeedUp).toBe(2000);
   });
 
   it('reports correct sampleCount', () => {
-    const eth0  = getStats('day').find(r => r.adapterId === 'eth0')!;
-    const wlan0 = getStats('day').find(r => r.adapterId === 'wlan0')!;
+    const eth0  = getStats('day', undefined, REF).find(r => r.adapterId === 'eth0')!;
+    const wlan0 = getStats('day', undefined, REF).find(r => r.adapterId === 'wlan0')!;
     expect(eth0.sampleCount).toBe(3);
     expect(wlan0.sampleCount).toBe(2);
   });
 
   it('filters by adapterId', () => {
-    const rows = getStats('day', 'eth0');
+    const rows = getStats('day', 'eth0', REF);
     expect(rows).toHaveLength(1);
     expect(rows[0].adapterId).toBe('eth0');
   });
 
   it('returns empty array when no data in period', () => {
-    // Filter to an unknown adapter
-    const rows = getStats('day', 'nonexistent');
+    const rows = getStats('day', 'nonexistent', REF);
     expect(rows).toHaveLength(0);
   });
 
   it('attaches the period field to each row', () => {
-    const rows = getStats('week') as Array<{ period: Period }>;
+    const rows = getStats('week', undefined, REF) as Array<{ period: Period }>;
     rows.forEach(r => expect(r.period).toBe('week'));
   });
 });
@@ -120,7 +119,7 @@ describe('getStats', () => {
 // ── getSummary ─────────────────────────────────────────────────────────────────
 describe('getSummary', () => {
   it('returns correct total bytes across all adapters', () => {
-    const s = getSummary('day');
+    const s = getSummary('day', REF);
     // eth0 bytesSent=450 + wlan0 bytesSent=120
     expect(s.totalBytesSent).toBe(570);
     // eth0 bytesReceived=900 + wlan0=180
@@ -128,23 +127,22 @@ describe('getSummary', () => {
   });
 
   it('returns total sampleCount across all adapters', () => {
-    expect(getSummary('day').sampleCount).toBe(5);
+    expect(getSummary('day', REF).sampleCount).toBe(5);
   });
 
   it('returns correct adapterCount', () => {
-    expect(getSummary('day').adapterCount).toBe(2);
+    expect(getSummary('day', REF).adapterCount).toBe(2);
   });
 
   it('returns global peakSpeedDown', () => {
-    expect(getSummary('day').peakSpeedDown).toBe(4000);
+    expect(getSummary('day', REF).peakSpeedDown).toBe(4000);
   });
 
   it('returns zeros when DB is empty for period', () => {
-    // Clear the DB
     const mem = new Database(':memory:');
     mem.exec(CREATE_NETWORK_METRICS);
     _setDbForTest(mem);
-    const s = getSummary('day');
+    const s = getSummary('day', REF);
     expect(s.totalBytesSent).toBe(0);
     expect(s.sampleCount).toBe(0);
   });

@@ -19,12 +19,10 @@
  * back via jest.requireMock('electron') — zero outer references in the
  * factory body.
  *
- * TS7022 fix: static isSupported = (): boolean => true
- * Without the explicit `: boolean` return-type annotation TypeScript
- * reports error TS7022 ('isSupported' implicitly has type 'any' because
- * it does not have a type annotation and is referenced directly or
- * indirectly in its own initializer) when the class is used as the
- * Notification type inside the factory closure.
+ * TS7022 fix: use method syntax `static isSupported(): boolean` instead
+ * of a class-field arrow `static isSupported = (): boolean => true`.
+ * Arrow-function class fields trigger TS7022 (implicit 'any' due to
+ * circular initialiser reference) in strict mode; method syntax does not.
  */
 import Database from 'better-sqlite3';
 import { _setDbForTest } from '../db/database';
@@ -43,10 +41,10 @@ import { NetworkMetric } from '../../shared/types';
 
 // ── Mock Electron Notification ────────────────────────────────────────────
 // All jest.fn() calls are INLINE — no outer variable referenced in factory.
-// TS7022 fix: explicit `: boolean` return type on isSupported.
+// TS7022 fix: method syntax on isSupported (not arrow class field).
 jest.mock('electron', () => ({
   Notification: class MockNotification {
-    static isSupported = (): boolean => true;
+    static isSupported(): boolean { return true; }
     show = jest.fn();
     constructor(_opts: unknown) {}
   },

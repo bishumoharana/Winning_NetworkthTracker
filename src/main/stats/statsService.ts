@@ -2,6 +2,8 @@
  * statsService — Issue #23
  *
  * Aggregates stored network_metrics into per-period summary statistics.
+ * NOTE: network_metrics has no `adapter_id` column — the adapter
+ * identifier is stored in `adapter_name`.  All queries use adapter_name.
  */
 import { getDb } from '../db/database';
 
@@ -25,7 +27,7 @@ export interface PeriodBounds {
   toTs:   number;
 }
 
-/** Returns { fromTs, toTs } for the start/end of the requested period (UTC). */
+/** Returns { fromTs, toTs } for the start/end of the requested period (local time). */
 export function getPeriodBounds(period: Period, now = Date.now()): PeriodBounds {
   const d = new Date(now);
 
@@ -50,23 +52,24 @@ export function getPeriodBounds(period: Period, now = Date.now()): PeriodBounds 
 
 /**
  * Returns per-adapter aggregated stats for the given period.
- * Optionally filtered to a single adapterId.
+ * Optionally filtered to a single adapterId (matched against adapter_name).
+ * `now` defaults to Date.now() — pass a fixed value in tests for determinism.
  */
-export function getStats(period: Period, adapterId?: string): StatsRow[] {
+export function getStats(period: Period, adapterId?: string, now = Date.now()): StatsRow[] {
   const db                  = getDb();
-  const { fromTs, toTs }    = getPeriodBounds(period);
+  const { fromTs, toTs }    = getPeriodBounds(period, now);
   const conditions: string[] = ['timestamp >= ?', 'timestamp <= ?'];
   const params: unknown[]    = [fromTs, toTs];
 
   if (adapterId) {
-    conditions.push('adapter_id = ?');
+    conditions.push('adapter_name = ?');
     params.push(adapterId);
   }
 
   const where = conditions.join(' AND ');
   const sql = `
     SELECT
-      adapter_id                       AS adapterId,
+      adapter_name                     AS adapterId,
       adapter_name                     AS adapterName,
       SUM(bytes_sent)                  AS totalBytesSent,
       SUM(bytes_received)              AS totalBytesReceived,
@@ -77,7 +80,7 @@ export function getStats(period: Period, adapterId?: string): StatsRow[] {
       COUNT(*)                         AS sampleCount
     FROM network_metrics
     WHERE ${where}
-    GROUP BY adapter_id
+    GROUP BY adapter_name
     ORDER BY adapter_name ASC
   `;
 
@@ -94,6 +97,7 @@ export function getStats(period: Period, adapterId?: string): StatsRow[] {
 
 /**
  * Returns a single rolled-up summary across ALL adapters for the period.
+ * `now` defaults to Date.now() — pass a fixed value in tests for determinism.
  */
 export interface SummaryRow {
   period:             Period;
@@ -107,9 +111,9 @@ export interface SummaryRow {
   adapterCount:       number;
 }
 
-export function getSummary(period: Period): SummaryRow {
+export function getSummary(period: Period, now = Date.now()): SummaryRow {
   const db               = getDb();
-  const { fromTs, toTs } = getPeriodBounds(period);
+  const { fromTs, toTs } = getPeriodBounds(period, now);
 
   const row = db.prepare(`
     SELECT
@@ -120,7 +124,7 @@ export function getSummary(period: Period): SummaryRow {
       CAST(AVG(speed_up)   AS INTEGER) AS avgSpeedUp,
       CAST(AVG(speed_down) AS INTEGER) AS avgSpeedDown,
       COUNT(*)                         AS sampleCount,
-      COUNT(DISTINCT adapter_id)       AS adapterCount
+      COUNT(DISTINCT adapter_name)     AS adapterCount
     FROM network_metrics
     WHERE timestamp >= ? AND timestamp <= ?
   `).get(fromTs, toTs) as {
