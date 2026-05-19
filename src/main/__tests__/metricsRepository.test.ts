@@ -2,8 +2,7 @@
  * Unit tests for Task 2.2 — SQLite Persistence Layer
  * Uses an in-memory SQLite database for full isolation.
  */
-import * as BetterSqlite3 from 'better-sqlite3';
-const Database = (BetterSqlite3 as any).default ?? BetterSqlite3;
+import Database from 'better-sqlite3';
 import { _setDbForTest } from '../db/database';
 import {
   insertMetric,
@@ -118,8 +117,8 @@ describe('insertMetric + queryMetrics', () => {
 describe('insertMetricsBatch', () => {
   it('inserts multiple rows in one transaction', () => {
     const batch = [
-      makeMetric({ adapterName: 'eth0', bytesSent: 100 }),
-      makeMetric({ adapterName: 'eth0', bytesSent: 200 }),
+      makeMetric({ adapterName: 'eth0',  bytesSent: 100 }),
+      makeMetric({ adapterName: 'eth0',  bytesSent: 200 }),
       makeMetric({ adapterName: 'wlan0', bytesSent: 300 }),
     ];
     insertMetricsBatch(batch);

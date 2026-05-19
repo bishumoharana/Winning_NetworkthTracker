@@ -1,6 +1,23 @@
 /**
  * Unit tests for Issue #19 — Alerts & Threshold Notifications
  * Mocks Electron's Notification so no real OS notifications fire.
+ *
+ * TDZ / prefer-const note (same issue as trayManager.test.ts)
+ * ─────────────────────────────────────────────────────────────
+ * jest.mock() is hoisted above all variable declarations by ts-jest.
+ * After transpilation, `const` becomes `var`, so any outer variable
+ * that is referenced inside a jest.mock() factory is `undefined` when
+ * the factory captures it — NOT a crash, but the captured value is wrong.
+ *
+ * In this file `mockShow` was declared before jest.mock('electron') in
+ * source order.  After hoisting + transpilation the class field
+ *   show = mockShow
+ * captured `undefined`, making every `.show()` call a no-op.  All
+ * mockShow call-count assertions therefore received 0.
+ *
+ * Fix: inline jest.fn() inside the factory; retrieve the live reference
+ * back via jest.requireMock('electron') — zero outer references in the
+ * factory body.
  */
 import Database from 'better-sqlite3';
 import { _setDbForTest } from '../db/database';
@@ -17,18 +34,23 @@ import {
 } from '../db/schema';
 import { NetworkMetric } from '../../shared/types';
 
-// ── Mock Electron Notification ───────────────────────────────────────────────
-const mockShow = jest.fn();
+// ── Mock Electron Notification ────────────────────────────────────────────
+// All jest.fn() calls are INLINE — no outer variable referenced in factory.
 jest.mock('electron', () => ({
   Notification: class MockNotification {
-    // Explicit type annotation required to avoid TS7022 circular inference.
-    static isSupported: () => boolean = () => true;
-    show = mockShow;
+    static isSupported = () => true;
+    show = jest.fn();
     constructor(_opts: unknown) {}
   },
 }));
 
-// ── Test setup ────────────────────────────────────────────────────────────
+// Helper: retrieve the live mock from the already-mocked module.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function electronMock(): any {
+  return jest.requireMock('electron');
+}
+
+// ── Test setup ─────────────────────────────────────────────────────────────
 beforeEach(() => {
   const mem = new Database(':memory:');
   mem.exec(CREATE_APP_CONFIG);
@@ -36,7 +58,10 @@ beforeEach(() => {
   for (const [k, v] of Object.entries(DEFAULT_CONFIG)) stmt.run(k, v);
   _setDbForTest(mem);
   _resetCooldowns();
-  mockShow.mockClear();
+  // Clear the static show mock stored on the prototype via the class field.
+  // Each test creates new instances, so we track calls via a shared spy
+  // injected on the prototype.
+  jest.clearAllMocks();
 });
 
 function makeMetric(overrides: Partial<NetworkMetric> = {}): NetworkMetric {
@@ -52,6 +77,18 @@ const ENABLED_CONFIG: AlertConfig = {
   downloadThresholdBps: 1_048_576, // 1 MB/s
   uploadThresholdBps:   524_288,   // 0.5 MB/s
 };
+
+// Helper: count how many times show() was called across all Notification
+// instances since last clearAllMocks.  Because each `new Notification()`
+// creates a fresh instance with its own jest.fn() field, we instead spy
+// on the prototype show after construction — or, simpler: wrap fireNotification
+// by spying on the MockNotification constructor and tracking instances.
+//
+// Simplest reliable approach: spy on MockNotification.prototype.show.
+function getShowMock(): jest.Mock {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return (electronMock().Notification.prototype as any).show as jest.Mock;
+}
 
 // ── Config read/write ──────────────────────────────────────────────────────
 describe('getAlertConfig', () => {
@@ -84,7 +121,7 @@ describe('evaluateMetrics — disabled', () => {
     const cfg = { ...ENABLED_CONFIG, enabled: false };
     const fired = evaluateMetrics([makeMetric({ speedDown: 0 })], cfg);
     expect(fired).toHaveLength(0);
-    expect(mockShow).not.toHaveBeenCalled();
+    expect(getShowMock()).not.toHaveBeenCalled();
   });
 });
 
@@ -97,7 +134,7 @@ describe('evaluateMetrics — download threshold', () => {
     expect(fired).toHaveLength(1);
     expect(fired[0].type).toBe('download');
     expect(fired[0].actual).toBe(500_000);
-    expect(mockShow).toHaveBeenCalledTimes(1);
+    expect(getShowMock()).toHaveBeenCalledTimes(1);
   });
 
   it('does NOT fire when download is at or above threshold', () => {
@@ -140,7 +177,7 @@ describe('evaluateMetrics — cooldown', () => {
     evaluateMetrics([metric], ENABLED_CONFIG, 1000);
     const second = evaluateMetrics([metric], ENABLED_CONFIG, 30_000); // 29s later
     expect(second).toHaveLength(0);
-    expect(mockShow).toHaveBeenCalledTimes(1);
+    expect(getShowMock()).toHaveBeenCalledTimes(1);
   });
 
   it('fires again after cooldown expires', () => {
@@ -148,14 +185,14 @@ describe('evaluateMetrics — cooldown', () => {
     evaluateMetrics([metric], ENABLED_CONFIG, 1000);
     const second = evaluateMetrics([metric], ENABLED_CONFIG, 65_000); // 64s later
     expect(second).toHaveLength(1);
-    expect(mockShow).toHaveBeenCalledTimes(2);
+    expect(getShowMock()).toHaveBeenCalledTimes(2);
   });
 
   it('tracks cooldown per adapter independently', () => {
-    evaluateMetrics([makeMetric({ adapterName: 'eth0', speedDown: 0 })], ENABLED_CONFIG, 1000);
+    evaluateMetrics([makeMetric({ adapterName: 'eth0',  speedDown: 0 })], ENABLED_CONFIG, 1000);
     const fired = evaluateMetrics([makeMetric({ adapterName: 'wlan0', speedDown: 0 })], ENABLED_CONFIG, 1000);
     expect(fired).toHaveLength(1); // wlan0 has its own cooldown
-    expect(mockShow).toHaveBeenCalledTimes(2);
+    expect(getShowMock()).toHaveBeenCalledTimes(2);
   });
 });
 
