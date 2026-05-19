@@ -1,106 +1,398 @@
 /**
  * Jest mock for better-sqlite3.
  *
- * better-sqlite3 compiles its native binary against the Electron ABI.
- * When Jest runs in plain Node the ABIs do not match and loading the real
- * binary crashes immediately with "was compiled against a different Node.js
- * version".
+ * Problem: @electron/rebuild recompiles better-sqlite3 for Electron's ABI.
+ * Jest runs under plain Node — a completely different ABI — so the rebuilt
+ * binary crashes immediately.  We cannot use the real binary in CI tests.
  *
- * Strategy:
- *   1. Try jest.requireActual('better-sqlite3').
- *   2. If the module loads, do a canary instantiation (new DB(':memory:'))
- *      to confirm the binary actually works under the current Node ABI.
- *   3. If the canary succeeds → use the real module (local dev after
- *      rebuilding for Node, or CI where the Node ABI binary is present).
- *   4. If the canary throws for ANY reason (ABI mismatch, "is not a
- *      constructor", etc.) → fall through to the in-memory stub so that
- *      aggregationService / metricsRepository tests can run without a
- *      native binary.
+ * Solution: a pure-JavaScript in-memory store that faithfully implements
+ * the better-sqlite3 synchronous API surface used by this project:
+ *   - pragma / exec  (DDL — parsed to build table schemas)
+ *   - prepare(sql)   → Statement with .run() / .get() / .all()
+ *   - transaction(fn) → wrapped function
  *
- * ESM-interop fix:
- *   With esModuleInterop:true, ts-jest compiles
- *     import Database from 'better-sqlite3'
- *   into
- *     const Database = better_sqlite3_1.default
+ * The store is a Map<tableName, row[]>.  SQL is parsed with lightweight
+ * regexes — good enough for the fixed queries in this codebase.
  *
- *   The real better-sqlite3 CJS module exports the constructor as
- *   module.exports = Database (no .default property), so .default would be
- *   undefined and `new Database()` throws "is not a constructor".
- *
- *   Fix: after requireActual, if .default is not already set, assign it
- *   so both import styles resolve to the constructor.
+ * ESM-interop: with esModuleInterop:true, ts-jest resolves
+ *   import Database from 'better-sqlite3'  →  module.default
+ * so we set DatabaseStub.default = DatabaseStub.
  */
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
-// ── Stub definition (used when the real binary is not usable) ─────────────
+// ---------------------------------------------------------------------------
+// Tiny SQL interpreter — only the statements used in this project
+// ---------------------------------------------------------------------------
 
-const makeStmt = () => ({
-  // Default changes:0 so that "returns 0 when nothing to delete" tests pass.
-  // Tests that need changes:1 call .mockReturnValueOnce({ changes: 1, ... }).
-  run:   jest.fn().mockReturnValue({ changes: 0, lastInsertRowid: 0 }),
-  get:   jest.fn().mockReturnValue(undefined),
-  all:   jest.fn().mockReturnValue([]),
-  pluck: jest.fn().mockReturnThis(),
-  bind:  jest.fn().mockReturnThis(),
-});
+type Row = Record<string, any>;
+type Store = Map<string, Row[]>;
 
-class DatabaseStub {
-  pragma      = jest.fn();
-  exec        = jest.fn();
-  close       = jest.fn();
-  prepare     = jest.fn().mockImplementation(() => makeStmt());
-  // better-sqlite3's transaction(fn) returns a NEW function that, when
-  // called with arguments, executes fn(...args) synchronously inside a
-  // transaction.  The stub must mirror this so that code like:
-  //   const insert = db.transaction((rows) => { ... });
-  //   insert(batch);
-  // actually invokes the inner function.
-  transaction = jest.fn().mockImplementation(
-    (fn: (...args: any[]) => any) =>
-      (...args: any[]) => fn(...args),
-  );
+/** Parse column names from a CREATE TABLE statement. */
+function parseColumns(createSql: string): string[] {
+  const body = createSql.replace(/[\r\n]+/g, ' ');
+  const m = body.match(/\(([^)]+)\)/);
+  if (!m) return [];
+  return m[1]
+    .split(',')
+    .map(c => c.trim().split(/\s+/)[0].toLowerCase())
+    .filter(c => c && !c.startsWith('primary') && !c.startsWith('unique')
+               && !c.startsWith('foreign') && !c.startsWith('check')
+               && !c.startsWith('constraint'));
 }
 
-// Export stub as both default and named so:
-//   import Database from 'better-sqlite3'   (ESM default / esModuleInterop)
-//   const Database = require('better-sqlite3') (CJS)
-// both resolve to the constructor.
-(DatabaseStub as any).default = DatabaseStub;
+/** Very small SQL executor against our in-memory store. */
+function runSql(
+  store: Store,
+  schemas: Map<string, string[]>,
+  sql: string,
+  params: any[],
+): { rows: Row[]; changes: number; lastInsertRowid: number } {
+  const s = sql.replace(/[\r\n]+/g, ' ').trim();
+  const upper = s.toUpperCase();
 
-// ── Attempt to use the real module ────────────────────────────────────────
+  // ── CREATE TABLE (IF NOT EXISTS) ─────────────────────────────────────────
+  if (upper.startsWith('CREATE TABLE')) {
+    const m = s.match(/CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?(\w+)/i);
+    if (m) {
+      const tbl = m[1].toLowerCase();
+      if (!store.has(tbl)) {
+        store.set(tbl, []);
+        schemas.set(tbl, parseColumns(s));
+      }
+    }
+    return { rows: [], changes: 0, lastInsertRowid: 0 };
+  }
 
-let useReal = false;
-let RealDatabase: any = null;
+  // ── CREATE INDEX ─────────────────────────────────────────────────────────
+  if (upper.startsWith('CREATE INDEX') || upper.startsWith('CREATE UNIQUE')) {
+    return { rows: [], changes: 0, lastInsertRowid: 0 };
+  }
 
-try {
-  RealDatabase = jest.requireActual('better-sqlite3');
+  // ── INSERT ────────────────────────────────────────────────────────────────
+  if (upper.startsWith('INSERT')) {
+    const orReplace = /INSERT\s+OR\s+REPLACE/i.test(s);
+    const orIgnore  = /INSERT\s+OR\s+IGNORE/i.test(s);
+    const tblM = s.match(/INTO\s+(\w+)\s*\(([^)]+)\)/i);
+    if (!tblM) return { rows: [], changes: 0, lastInsertRowid: 0 };
+    const tbl  = tblM[1].toLowerCase();
+    const cols = tblM[2].split(',').map(c => c.trim().toLowerCase());
 
-  if (RealDatabase) {
-    // Patch .default for esModuleInterop if not already present.
-    if (!RealDatabase.default) {
-      RealDatabase.default = RealDatabase;
+    const rows = store.get(tbl) ?? [];
+    store.set(tbl, rows);
+
+    // Build the new row
+    const row: Row = {};
+    cols.forEach((c, i) => { row[c] = params[i] ?? null; });
+
+    // Detect UNIQUE / PRIMARY KEY conflicts for OR REPLACE / OR IGNORE
+    // Heuristic: treat first column as the unique key if orReplace/orIgnore
+    if (orReplace || orIgnore) {
+      // Find a unique-ish key: for app_config it's "key"; generic: first col
+      const uniqueCol = cols[0];
+      const idx = rows.findIndex(r => r[uniqueCol] === row[uniqueCol]);
+      if (idx !== -1) {
+        if (orIgnore)  return { rows: [], changes: 0, lastInsertRowid: 0 };
+        if (orReplace) { rows.splice(idx, 1); } // fall through to insert
+      }
     }
 
-    // Canary: actually open an in-memory database to confirm the native
-    // binary is usable under the *current* Node ABI (not just the Electron
-    // ABI that @electron/rebuild targets).  If this throws, we fall back to
-    // the stub below.
-    const Ctor = RealDatabase.default ?? RealDatabase;
-    const canary = new Ctor(':memory:');
-    canary.close();
-    useReal = true;
+    rows.push(row);
+    return { rows: [], changes: 1, lastInsertRowid: rows.length };
   }
-} catch {
-  // Native binary is not usable in this environment (ABI mismatch, missing
-  // file, etc.) — fall through to stub.
-  useReal = false;
+
+  // ── DELETE ────────────────────────────────────────────────────────────────
+  if (upper.startsWith('DELETE')) {
+    const tblM = s.match(/FROM\s+(\w+)/i);
+    if (!tblM) return { rows: [], changes: 0, lastInsertRowid: 0 };
+    const tbl  = tblM[1].toLowerCase();
+    const rows = store.get(tbl) ?? [];
+
+    // Parse simple WHERE col < ? or col <= ? etc.
+    const whereM = s.match(/WHERE\s+(\w+)\s*(<|<=|>|>=|=)\s*\?/i);
+    if (!whereM) {
+      const before = rows.length;
+      store.set(tbl, []);
+      return { rows: [], changes: before, lastInsertRowid: 0 };
+    }
+    const col = whereM[1].toLowerCase();
+    const op  = whereM[2];
+    const val = params[0];
+    const keep = rows.filter(r => !compare(r[col], op, val));
+    const deleted = rows.length - keep.length;
+    store.set(tbl, keep);
+    return { rows: [], changes: deleted, lastInsertRowid: 0 };
+  }
+
+  // ── UPDATE ────────────────────────────────────────────────────────────────
+  if (upper.startsWith('UPDATE')) {
+    const tblM = s.match(/UPDATE\s+(\w+)\s+SET\s+(.+?)\s+WHERE\s+(.+)/i);
+    if (!tblM) return { rows: [], changes: 0, lastInsertRowid: 0 };
+    const tbl     = tblM[1].toLowerCase();
+    const setPart = tblM[2];
+    const wherePart = tblM[3];
+    const rows    = store.get(tbl) ?? [];
+
+    // Parse SET col = ?
+    const setCol = (setPart.match(/(\w+)\s*=\s*\?/i) ?? [])[1]?.toLowerCase();
+    // Parse WHERE col = ?
+    const whereCol = (wherePart.match(/(\w+)\s*=\s*\?/i) ?? [])[1]?.toLowerCase();
+    if (!setCol || !whereCol) return { rows: [], changes: 0, lastInsertRowid: 0 };
+
+    let changes = 0;
+    for (const r of rows) {
+      if (r[whereCol] === params[1]) { r[setCol] = params[0]; changes++; }
+    }
+    return { rows: [], changes, lastInsertRowid: 0 };
+  }
+
+  // ── SELECT ────────────────────────────────────────────────────────────────
+  if (upper.startsWith('SELECT')) {
+    return { rows: execSelect(store, s, params), changes: 0, lastInsertRowid: 0 };
+  }
+
+  // ── PRAGMA / other ───────────────────────────────────────────────────────
+  return { rows: [], changes: 0, lastInsertRowid: 0 };
 }
 
-// ── Export ────────────────────────────────────────────────────────────────
-
-if (useReal) {
-  module.exports = RealDatabase;
-} else {
-  module.exports = DatabaseStub;
+/** Operator comparator helper */
+function compare(a: any, op: string, b: any): boolean {
+  switch (op) {
+    case '<':  return a < b;
+    case '<=': return a <= b;
+    case '>':  return a > b;
+    case '>=': return a >= b;
+    case '=':  return a === b;
+    default:   return false;
+  }
 }
+
+/** Execute a SELECT statement and return matching rows. */
+function execSelect(store: Store, sql: string, params: any[]): Row[] {
+  // Extract table name
+  const tblM = sql.match(/FROM\s+(\w+)/i);
+  if (!tblM) return [];
+  const tbl  = tblM[1].toLowerCase();
+  let rows   = [...(store.get(tbl) ?? [])];
+
+  // Build WHERE conditions
+  // Supports: col = ?, col < ?, col <= ?, col > ?, col >= ?
+  // Multiple AND conditions
+  const whereM = sql.match(/WHERE\s+(.+?)(?:ORDER BY|GROUP BY|LIMIT|$)/i);
+  if (whereM) {
+    let pi = 0;
+    const conditions = whereM[1].split(/\s+AND\s+/i);
+    for (const cond of conditions) {
+      const m = cond.trim().match(/(\w+)\s*(<|<=|>|>=|=|!=|<>)\s*\?/i);
+      if (m) {
+        const col = m[1].toLowerCase();
+        const op  = m[2];
+        const val = params[pi++];
+        const invOp = op === '!=' || op === '<>' ? '!=' : op;
+        if (invOp === '!=') {
+          rows = rows.filter(r => r[col] !== val);
+        } else {
+          rows = rows.filter(r => compare(r[col], op, val));
+        }
+      }
+    }
+  }
+
+  // LIMIT
+  const limitM = sql.match(/LIMIT\s+(\d+)/i);
+  if (limitM) rows = rows.slice(0, parseInt(limitM[1], 10));
+
+  // ORDER BY col DESC
+  const orderM = sql.match(/ORDER BY\s+(\w+)(?:\s+(ASC|DESC))?/i);
+  if (orderM) {
+    const col  = orderM[1].toLowerCase();
+    const desc = (orderM[2] ?? '').toUpperCase() === 'DESC';
+    rows.sort((a, b) => {
+      if (a[col] < b[col]) return desc ? 1 : -1;
+      if (a[col] > b[col]) return desc ? -1 : 1;
+      return 0;
+    });
+  }
+
+  // SELECT col list (or *)
+  const selM = sql.match(/^SELECT\s+(.*?)\s+FROM/i);
+  if (selM && selM[1].trim() !== '*') {
+    // Handle aggregate functions and aliases for GROUP BY aggregation
+    const selRaw = selM[1];
+    if (/COUNT|SUM|AVG|MAX|MIN|DISTINCT/i.test(selRaw)) {
+      return execAggregate(rows, selRaw, sql, params);
+    }
+    // Project specific columns
+    const cols = selRaw.split(',').map(c => {
+      const alias = c.match(/(\w+)\s+AS\s+(\w+)/i);
+      if (alias) return { from: alias[1].toLowerCase(), to: alias[2].toLowerCase() };
+      const col   = c.trim().toLowerCase();
+      return { from: col, to: col };
+    });
+    return rows.map(r => {
+      const out: Row = {};
+      for (const { from, to } of cols) out[to] = r[from];
+      return out;
+    });
+  }
+
+  return rows;
+}
+
+/** Handle aggregate SELECT (COUNT, SUM, AVG, MAX, MIN, DISTINCT). */
+function execAggregate(rows: Row[], selRaw: string, fullSql: string, _params: any[]): Row[] {
+  // GROUP BY
+  const groupM = fullSql.match(/GROUP\s+BY\s+(\w+)/i);
+  if (groupM) {
+    const groupCol = groupM[1].toLowerCase();
+    const groups   = new Map<any, Row[]>();
+    for (const r of rows) {
+      const key = r[groupCol];
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key)!.push(r);
+    }
+    return [...groups.entries()].map(([key, grp]) =>
+      computeAggRow(selRaw, grp, groupCol, key)
+    );
+  }
+
+  // No GROUP BY — single aggregate row
+  if (rows.length === 0) return [];
+  return [computeAggRow(selRaw, rows, null, null)];
+}
+
+/** Compute one aggregate result row from a group of rows. */
+function computeAggRow(selRaw: string, rows: Row[], groupCol: string | null, groupVal: any): Row {
+  const out: Row = {};
+  if (groupCol) out[groupCol] = groupVal;
+
+  const exprs = selRaw.split(',');
+  for (const expr of exprs) {
+    const e = expr.trim();
+    const aliasM = e.match(/(.+)\s+AS\s+(\w+)/i);
+    const alias  = aliasM ? aliasM[2].toLowerCase() : null;
+    const body   = (aliasM ? aliasM[1] : e).trim();
+
+    // COUNT(*) or COUNT(col)
+    if (/^COUNT\s*\(/i.test(body)) {
+      const key = alias ?? 'count(*)';
+      out[key] = rows.length;
+      continue;
+    }
+    // SUM(col)
+    const sumM = body.match(/^SUM\s*\((\w+)\)/i);
+    if (sumM) {
+      const col = sumM[1].toLowerCase();
+      const key = alias ?? `sum(${col})`;
+      out[key] = rows.reduce((acc, r) => acc + (Number(r[col]) || 0), 0);
+      continue;
+    }
+    // AVG(col)
+    const avgM = body.match(/^AVG\s*\((\w+)\)/i);
+    if (avgM) {
+      const col = avgM[1].toLowerCase();
+      const key = alias ?? `avg(${col})`;
+      out[key] = rows.length ? rows.reduce((acc, r) => acc + (Number(r[col]) || 0), 0) / rows.length : 0;
+      continue;
+    }
+    // MAX(col)
+    const maxM = body.match(/^MAX\s*\((\w+)\)/i);
+    if (maxM) {
+      const col = maxM[1].toLowerCase();
+      const key = alias ?? `max(${col})`;
+      out[key] = rows.reduce((acc, r) => Math.max(acc, Number(r[col]) || 0), -Infinity);
+      continue;
+    }
+    // MIN(col)
+    const minM = body.match(/^MIN\s*\((\w+)\)/i);
+    if (minM) {
+      const col = minM[1].toLowerCase();
+      const key = alias ?? `min(${col})`;
+      out[key] = rows.reduce((acc, r) => Math.min(acc, Number(r[col]) || 0), Infinity);
+      continue;
+    }
+    // DISTINCT col
+    const distM = body.match(/^DISTINCT\s+(\w+)/i);
+    if (distM) {
+      const col = distM[1].toLowerCase();
+      const key = alias ?? col;
+      out[key] = [...new Set(rows.map(r => r[col]))];
+      continue;
+    }
+    // Plain column
+    const col = body.toLowerCase();
+    if (groupCol && col === groupCol) { out[col] = groupVal; continue; }
+    out[alias ?? col] = rows[0]?.[col];
+  }
+  return out;
+}
+
+// ---------------------------------------------------------------------------
+// DatabaseStub — implements the better-sqlite3 API surface
+// ---------------------------------------------------------------------------
+
+class DatabaseStub {
+  private store: Store = new Map();
+  private schemas: Map<string, string[]> = new Map();
+
+  constructor(_path: string) {}
+
+  pragma(_s: string): void { /* no-op */ }
+
+  exec(sql: string): void {
+    // Execute each semicolon-separated statement
+    for (const stmt of sql.split(';')) {
+      const t = stmt.trim();
+      if (t) runSql(this.store, this.schemas, t, []);
+    }
+  }
+
+  prepare(sql: string): StatementStub {
+    return new StatementStub(sql, this.store, this.schemas);
+  }
+
+  transaction(fn: (...args: any[]) => any): (...args: any[]) => any {
+    return (...args: any[]) => fn(...args);
+  }
+
+  close(): void {
+    this.store.clear();
+    this.schemas.clear();
+  }
+}
+
+class StatementStub {
+  constructor(
+    private sql: string,
+    private store: Store,
+    private schemas: Map<string, string[]>,
+  ) {}
+
+  run(...params: any[]): { changes: number; lastInsertRowid: number } {
+    const flat = params.flat();
+    const r = runSql(this.store, this.schemas, this.sql, flat);
+    return { changes: r.changes, lastInsertRowid: r.lastInsertRowid };
+  }
+
+  get(...params: any[]): Row | undefined {
+    const flat = params.flat();
+    const r = runSql(this.store, this.schemas, this.sql, flat);
+    return r.rows[0];
+  }
+
+  all(...params: any[]): Row[] {
+    const flat = params.flat();
+    const r = runSql(this.store, this.schemas, this.sql, flat);
+    return r.rows;
+  }
+
+  pluck(): this { return this; }
+  bind(): this  { return this; }
+}
+
+// ESM-interop: make `.default` resolve to the constructor
+(DatabaseStub as any).default = DatabaseStub;
+
+// Always export the stub — the real binary is compiled for Electron ABI
+// and cannot run under plain Node (the Jest environment).
+module.exports = DatabaseStub;

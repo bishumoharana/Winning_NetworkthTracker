@@ -2,27 +2,22 @@
  * Unit tests for Issue #19 — Alerts & Threshold Notifications
  * Mocks Electron's Notification so no real OS notifications fire.
  *
- * TDZ / prefer-const note (same issue as trayManager.test.ts)
- * ─────────────────────────────────────────────────────────────
- * jest.mock() is hoisted above all variable declarations by ts-jest.
- * After transpilation, `const` becomes `var`, so any outer variable
- * that is referenced inside a jest.mock() factory is `undefined` when
- * the factory captures it — NOT a crash, but the captured value is wrong.
+ * Fix summary
+ * ───────────
+ * 1. TDZ / hoisting: jest.mock() is hoisted by ts-jest above all variable
+ *    declarations.  Any outer variable referenced inside the factory is
+ *    `undefined` at capture time.  All jest.fn() calls must be inline.
  *
- * In this file `mockShow` was declared before jest.mock('electron') in
- * source order.  After hoisting + transpilation the class field
- *   show = mockShow
- * captured `undefined`, making every `.show()` call a no-op.  All
- * mockShow call-count assertions therefore received 0.
+ * 2. Prototype vs instance field: `show = jest.fn()` is a class instance
+ *    field — it is assigned per-instance in the constructor and does NOT
+ *    appear on MockNotification.prototype.  getShowMock() accesses
+ *    `Notification.prototype.show`, which would be `undefined`.
+ *    Fix: define show as a real prototype method, then replace it with a
+ *    shared jest.fn() attached directly on the prototype so every instance
+ *    inherits the same spy.
  *
- * Fix: inline jest.fn() inside the factory; retrieve the live reference
- * back via jest.requireMock('electron') — zero outer references in the
- * factory body.
- *
- * TS7022 fix: use method syntax `static isSupported(): boolean` instead
- * of a class-field arrow `static isSupported = (): boolean => true`.
- * Arrow-function class fields trigger TS7022 (implicit 'any' due to
- * circular initialiser reference) in strict mode; method syntax does not.
+ * 3. TS7022: use method syntax `static isSupported(): boolean` instead of
+ *    arrow class-field to avoid circular-initialiser implicit-any error.
  */
 import Database from 'better-sqlite3';
 import { _setDbForTest } from '../db/database';
@@ -40,15 +35,21 @@ import {
 import { NetworkMetric } from '../../shared/types';
 
 // ── Mock Electron Notification ────────────────────────────────────────────
-// All jest.fn() calls are INLINE — no outer variable referenced in factory.
-// TS7022 fix: method syntax on isSupported (not arrow class field).
-jest.mock('electron', () => ({
-  Notification: class MockNotification {
+// show is placed on the prototype (not as an instance field) so that
+// getShowMock() can retrieve it via Notification.prototype.show.
+jest.mock('electron', () => {
+  // Inline jest.fn() — no outer variable references (hoisting safety).
+  const showSpy = jest.fn();
+  class MockNotification {
     static isSupported(): boolean { return true; }
-    show = jest.fn();
+    show(): void { /* replaced below */ }
+    on(_e: string, _fn: unknown): void { /* no-op */ }
     constructor(_opts: unknown) {}
-  },
-}));
+  }
+  // Attach the shared spy to the prototype so all instances share it.
+  MockNotification.prototype.show = showSpy;
+  return { Notification: MockNotification };
+});
 
 // Helper: retrieve the live mock from the already-mocked module.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -58,15 +59,12 @@ function electronMock(): any {
 
 // ── Test setup ─────────────────────────────────────────────────────────────
 beforeEach(() => {
-  const mem = new Database(':memory:');
+  const mem = new Database(':memory:') as any;
   mem.exec(CREATE_APP_CONFIG);
   const stmt = mem.prepare(`INSERT OR IGNORE INTO app_config (key, value) VALUES (?, ?)`);
   for (const [k, v] of Object.entries(DEFAULT_CONFIG)) stmt.run(k, v);
   _setDbForTest(mem);
   _resetCooldowns();
-  // Clear the static show mock stored on the prototype via the class field.
-  // Each test creates new instances, so we track calls via a shared spy
-  // injected on the prototype.
   jest.clearAllMocks();
 });
 
@@ -84,13 +82,7 @@ const ENABLED_CONFIG: AlertConfig = {
   uploadThresholdBps:   524_288,   // 0.5 MB/s
 };
 
-// Helper: count how many times show() was called across all Notification
-// instances since last clearAllMocks.  Because each `new Notification()`
-// creates a fresh instance with its own jest.fn() field, we instead spy
-// on the prototype show after construction — or, simpler: wrap fireNotification
-// by spying on the MockNotification constructor and tracking instances.
-//
-// Simplest reliable approach: spy on MockNotification.prototype.show.
+// Helper: retrieve the show spy from the prototype.
 function getShowMock(): jest.Mock {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   return (electronMock().Notification.prototype as any).show as jest.Mock;
@@ -160,7 +152,7 @@ describe('evaluateMetrics — download threshold', () => {
 describe('evaluateMetrics — upload threshold', () => {
   it('fires for upload breach when download is fine', () => {
     const fired = evaluateMetrics(
-      [makeMetric({ speedUp: 100_000, speedDown: 5_000_000 })], // upload low, download fine
+      [makeMetric({ speedUp: 100_000, speedDown: 5_000_000 })],
       ENABLED_CONFIG,
     );
     expect(fired).toHaveLength(1);
@@ -173,7 +165,7 @@ describe('evaluateMetrics — upload threshold', () => {
       ENABLED_CONFIG,
     );
     expect(fired).toHaveLength(1);
-    expect(fired[0].type).toBe('download'); // download checked first
+    expect(fired[0].type).toBe('download');
   });
 });
 
@@ -181,7 +173,7 @@ describe('evaluateMetrics — cooldown', () => {
   it('does not fire twice within 60s cooldown window', () => {
     const metric = makeMetric({ speedDown: 0 });
     evaluateMetrics([metric], ENABLED_CONFIG, 1000);
-    const second = evaluateMetrics([metric], ENABLED_CONFIG, 30_000); // 29s later
+    const second = evaluateMetrics([metric], ENABLED_CONFIG, 30_000);
     expect(second).toHaveLength(0);
     expect(getShowMock()).toHaveBeenCalledTimes(1);
   });
@@ -189,7 +181,7 @@ describe('evaluateMetrics — cooldown', () => {
   it('fires again after cooldown expires', () => {
     const metric = makeMetric({ speedDown: 0 });
     evaluateMetrics([metric], ENABLED_CONFIG, 1000);
-    const second = evaluateMetrics([metric], ENABLED_CONFIG, 65_000); // 64s later
+    const second = evaluateMetrics([metric], ENABLED_CONFIG, 65_000);
     expect(second).toHaveLength(1);
     expect(getShowMock()).toHaveBeenCalledTimes(2);
   });
@@ -197,7 +189,7 @@ describe('evaluateMetrics — cooldown', () => {
   it('tracks cooldown per adapter independently', () => {
     evaluateMetrics([makeMetric({ adapterName: 'eth0',  speedDown: 0 })], ENABLED_CONFIG, 1000);
     const fired = evaluateMetrics([makeMetric({ adapterName: 'wlan0', speedDown: 0 })], ENABLED_CONFIG, 1000);
-    expect(fired).toHaveLength(1); // wlan0 has its own cooldown
+    expect(fired).toHaveLength(1);
     expect(getShowMock()).toHaveBeenCalledTimes(2);
   });
 });
@@ -207,7 +199,7 @@ describe('evaluateMetrics — multi-adapter batch', () => {
     const metrics = [
       makeMetric({ adapterName: 'eth0',  speedDown: 0 }),
       makeMetric({ adapterName: 'wlan0', speedDown: 0 }),
-      makeMetric({ adapterName: 'lo',    speedDown: 50_000_000 }), // fast, no alert
+      makeMetric({ adapterName: 'lo',    speedDown: 50_000_000 }),
     ];
     const fired = evaluateMetrics(metrics, ENABLED_CONFIG);
     expect(fired).toHaveLength(2);
