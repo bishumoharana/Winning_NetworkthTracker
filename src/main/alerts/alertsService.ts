@@ -21,7 +21,11 @@ const DEFAULT_CONFIG: AlertConfig = {
   uploadThresholdBps:   0,
 };
 
-/** Cooldown map: adapterName -> last notification epoch ms */
+/**
+ * Cooldown map: adapterName -> last notification epoch ms.
+ * Initialised to -Infinity so the very first evaluation always fires
+ * regardless of what `now` value is passed (including small values in tests).
+ */
 const cooldowns = new Map<string, number>();
 const COOLDOWN_MS = 60_000; // 60 seconds
 
@@ -90,7 +94,9 @@ export function evaluateMetrics(
 
   for (const m of metrics) {
     const cooldownKey = m.adapterName;
-    const lastFired   = cooldowns.get(cooldownKey) ?? 0;
+    // FIX: use -Infinity as the default so the very first call always passes
+    // the cooldown check regardless of how small `now` is (e.g. now=1000 in tests).
+    const lastFired   = cooldowns.get(cooldownKey) ?? -Infinity;
     if (now - lastFired < COOLDOWN_MS) continue; // still in cooldown
 
     let shouldFire = false;

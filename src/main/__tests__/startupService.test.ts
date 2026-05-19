@@ -1,5 +1,11 @@
 /**
  * Unit tests for Issue #22 — startupService
+ *
+ * Fix: jest.mock() is hoisted above all variable declarations by ts-jest.
+ * Any `const mockFn = jest.fn()` declared OUTSIDE the factory is in the
+ * Temporal Dead Zone (TDZ) when the factory runs → ReferenceError.
+ * Solution: declare all jest.fn() spies INSIDE the factory, then retrieve
+ * them via jest.requireMock('electron') in beforeEach.
  */
 import Database from 'better-sqlite3';
 import * as os from 'os';
@@ -8,15 +14,12 @@ import { _setDbForTest } from '../db/database';
 import { CREATE_APP_CONFIG, DEFAULT_CONFIG } from '../db/schema';
 
 // ── Mocks ────────────────────────────────────────────────────────────────────
-const mockGetLoginItemSettings = jest.fn();
-const mockSetLoginItemSettings = jest.fn();
-const mockGetPath = jest.fn();
-
+// All jest.fn() calls are INSIDE the factory — safe from hoisting/TDZ.
 jest.mock('electron', () => ({
   app: {
-    getLoginItemSettings: mockGetLoginItemSettings,
-    setLoginItemSettings: mockSetLoginItemSettings,
-    getPath: mockGetPath,
+    getLoginItemSettings: jest.fn(),
+    setLoginItemSettings: jest.fn(),
+    getPath: jest.fn(),
   },
 }));
 
@@ -36,6 +39,12 @@ import {
 const TEST_HOME = `${os.tmpdir()}/nt-test-home`;
 const DESKTOP_FILE = `${TEST_HOME}/.config/autostart/network-tracker.desktop`;
 
+// Helpers to retrieve spies from the already-mocked module.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function electronApp(): any {
+  return jest.requireMock('electron').app;
+}
+
 function setupDb() {
   const mem = new Database(':memory:');
   mem.exec(CREATE_APP_CONFIG);
@@ -48,8 +57,8 @@ function setupDb() {
 beforeEach(() => {
   setupDb();
   jest.clearAllMocks();
-  mockGetPath.mockReturnValue('/fake/exe');
-  mockGetLoginItemSettings.mockReturnValue({ openAtLogin: false });
+  electronApp().getPath.mockReturnValue('/fake/exe');
+  electronApp().getLoginItemSettings.mockReturnValue({ openAtLogin: false });
 });
 
 afterAll(() => {
@@ -63,12 +72,12 @@ describe('getLoginItemEnabled — native (non-linux)', () => {
   afterAll(() => { Object.defineProperty(process, 'platform', { value: originalPlatform }); });
 
   it('returns false when openAtLogin is false', () => {
-    mockGetLoginItemSettings.mockReturnValue({ openAtLogin: false });
+    electronApp().getLoginItemSettings.mockReturnValue({ openAtLogin: false });
     expect(getLoginItemEnabled()).toBe(false);
   });
 
   it('returns true when openAtLogin is true', () => {
-    mockGetLoginItemSettings.mockReturnValue({ openAtLogin: true });
+    electronApp().getLoginItemSettings.mockReturnValue({ openAtLogin: true });
     expect(getLoginItemEnabled()).toBe(true);
   });
 });
@@ -80,25 +89,25 @@ describe('setLoginItemEnabled — native (non-linux)', () => {
   afterAll(() => { Object.defineProperty(process, 'platform', { value: originalPlatform }); });
 
   it('calls app.setLoginItemSettings with openAtLogin: true and openAsHidden: true', () => {
-    mockGetLoginItemSettings.mockReturnValue({ openAtLogin: true });
+    electronApp().getLoginItemSettings.mockReturnValue({ openAtLogin: true });
     setLoginItemEnabled(true);
-    expect(mockSetLoginItemSettings).toHaveBeenCalledWith({ openAtLogin: true, openAsHidden: true });
+    expect(electronApp().setLoginItemSettings).toHaveBeenCalledWith({ openAtLogin: true, openAsHidden: true });
   });
 
   it('calls app.setLoginItemSettings with openAtLogin: false', () => {
-    mockGetLoginItemSettings.mockReturnValue({ openAtLogin: false });
+    electronApp().getLoginItemSettings.mockReturnValue({ openAtLogin: false });
     setLoginItemEnabled(false);
-    expect(mockSetLoginItemSettings).toHaveBeenCalledWith({ openAtLogin: false, openAsHidden: true });
+    expect(electronApp().setLoginItemSettings).toHaveBeenCalledWith({ openAtLogin: false, openAsHidden: true });
   });
 
   it('persists value to app_config in DB', () => {
-    mockGetLoginItemSettings.mockReturnValue({ openAtLogin: true });
+    electronApp().getLoginItemSettings.mockReturnValue({ openAtLogin: true });
     setLoginItemEnabled(true);
     expect(getStartupConfig()).toBe(true);
   });
 
   it('is idempotent — calling set(true) twice does not throw', () => {
-    mockGetLoginItemSettings.mockReturnValue({ openAtLogin: true });
+    electronApp().getLoginItemSettings.mockReturnValue({ openAtLogin: true });
     expect(() => { setLoginItemEnabled(true); setLoginItemEnabled(true); }).not.toThrow();
   });
 });
@@ -147,12 +156,12 @@ describe('getStartupConfig', () => {
   afterAll(() => { Object.defineProperty(process, 'platform', { value: originalPlatform }); });
 
   it('returns false by default (key not yet written)', () => {
-    mockGetLoginItemSettings.mockReturnValue({ openAtLogin: false });
+    electronApp().getLoginItemSettings.mockReturnValue({ openAtLogin: false });
     expect(getStartupConfig()).toBe(false);
   });
 
   it('returns true after setLoginItemEnabled(true)', () => {
-    mockGetLoginItemSettings.mockReturnValue({ openAtLogin: true });
+    electronApp().getLoginItemSettings.mockReturnValue({ openAtLogin: true });
     setLoginItemEnabled(true);
     expect(getStartupConfig()).toBe(true);
   });

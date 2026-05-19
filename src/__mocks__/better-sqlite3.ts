@@ -88,12 +88,11 @@ function runSql(
     // Detect UNIQUE / PRIMARY KEY conflicts for OR REPLACE / OR IGNORE
     // Heuristic: treat first column as the unique key if orReplace/orIgnore
     if (orReplace || orIgnore) {
-      // Find a unique-ish key: for app_config it's "key"; generic: first col
       const uniqueCol = cols[0];
       const idx = rows.findIndex(r => r[uniqueCol] === row[uniqueCol]);
       if (idx !== -1) {
         if (orIgnore)  return { rows: [], changes: 0, lastInsertRowid: 0 };
-        if (orReplace) { rows.splice(idx, 1); } // fall through to insert
+        if (orReplace) { rows.splice(idx, 1); }
       }
     }
 
@@ -108,7 +107,6 @@ function runSql(
     const tbl  = tblM[1].toLowerCase();
     const rows = store.get(tbl) ?? [];
 
-    // Parse simple WHERE col < ? or col <= ? etc.
     const whereM = s.match(/WHERE\s+(\w+)\s*(<|<=|>|>=|=)\s*\?/i);
     if (!whereM) {
       const before = rows.length;
@@ -133,9 +131,7 @@ function runSql(
     const wherePart = tblM[3];
     const rows    = store.get(tbl) ?? [];
 
-    // Parse SET col = ?
-    const setCol = (setPart.match(/(\w+)\s*=\s*\?/i) ?? [])[1]?.toLowerCase();
-    // Parse WHERE col = ?
+    const setCol   = (setPart.match(/(\w+)\s*=\s*\?/i) ?? [])[1]?.toLowerCase();
     const whereCol = (wherePart.match(/(\w+)\s*=\s*\?/i) ?? [])[1]?.toLowerCase();
     if (!setCol || !whereCol) return { rows: [], changes: 0, lastInsertRowid: 0 };
 
@@ -167,81 +163,179 @@ function compare(a: any, op: string, b: any): boolean {
   }
 }
 
+/**
+ * Parse WHERE clause into conditions and advance the param index.
+ * Returns { filtered rows, params consumed }.
+ * Handles:
+ *   col op ?                          (simple)
+ *   (col op ? OR col op ?)            (OR group — e.g. adapter_mac = ? OR adapter_name = ?)
+ */
+function applyWhere(rows: Row[], whereClause: string, params: any[], startIdx: number): { rows: Row[]; pi: number } {
+  let pi = startIdx;
+  // Split on AND (but not inside parentheses)
+  const andParts = splitAndTopLevel(whereClause);
+
+  for (const part of andParts) {
+    const trimmed = part.trim();
+
+    // (col op ? OR col op ?) — parenthesised OR group
+    const orGroupM = trimmed.match(/^\((.+)\)$/);
+    if (orGroupM) {
+      const orParts = orGroupM[1].split(/\s+OR\s+/i);
+      // Count how many ? are in this group to advance pi correctly
+      const qCount = (orGroupM[1].match(/\?/g) ?? []).length;
+      const groupParams = params.slice(pi, pi + qCount);
+      pi += qCount;
+
+      rows = rows.filter(row => {
+        let pj = 0;
+        for (const op of orParts) {
+          const m = op.trim().match(/(\w+)\s*(<|<=|>|>=|=|!=|<>)\s*\?/i);
+          if (m) {
+            const col = m[1].toLowerCase();
+            const oper = m[2];
+            const val = groupParams[pj++];
+            if (oper === '!=' || oper === '<>') {
+              if (row[col] !== val) return true;
+            } else {
+              if (compare(row[col], oper, val)) return true;
+            }
+          }
+        }
+        return false;
+      });
+      continue;
+    }
+
+    // Simple: col op ?
+    const simpleM = trimmed.match(/(\w+)\s*(<|<=|>|>=|=|!=|<>)\s*\?/i);
+    if (simpleM) {
+      const col  = simpleM[1].toLowerCase();
+      const oper = simpleM[2];
+      const val  = params[pi++];
+      if (oper === '!=' || oper === '<>') {
+        rows = rows.filter(r => r[col] !== val);
+      } else {
+        rows = rows.filter(r => compare(r[col], oper, val));
+      }
+    }
+  }
+
+  return { rows, pi };
+}
+
+/** Split a WHERE clause on AND, but not inside parentheses. */
+function splitAndTopLevel(clause: string): string[] {
+  const parts: string[] = [];
+  let depth = 0;
+  let current = '';
+  let i = 0;
+  while (i < clause.length) {
+    if (clause[i] === '(') { depth++; current += clause[i++]; }
+    else if (clause[i] === ')') { depth--; current += clause[i++]; }
+    else if (depth === 0 && clause.slice(i).match(/^\s+AND\s+/i)) {
+      const m = clause.slice(i).match(/^(\s+AND\s+)/i)!;
+      parts.push(current);
+      current = '';
+      i += m[1].length;
+    } else {
+      current += clause[i++];
+    }
+  }
+  if (current.trim()) parts.push(current);
+  return parts;
+}
+
 /** Execute a SELECT statement and return matching rows. */
 function execSelect(store: Store, sql: string, params: any[]): Row[] {
   // Extract table name
   const tblM = sql.match(/FROM\s+(\w+)/i);
   if (!tblM) return [];
-  const tbl  = tblM[1].toLowerCase();
-  let rows   = [...(store.get(tbl) ?? [])];
+  const tbl = tblM[1].toLowerCase();
+  let rows  = [...(store.get(tbl) ?? [])];
 
-  // Build WHERE conditions
-  // Supports: col = ?, col < ?, col <= ?, col > ?, col >= ?
-  // Multiple AND conditions
-  const whereM = sql.match(/WHERE\s+(.+?)(?:ORDER BY|GROUP BY|LIMIT|$)/i);
+  // Apply WHERE
+  const whereM = sql.match(/WHERE\s+(.+?)(?:\s+ORDER\s+BY|\s+GROUP\s+BY|\s+LIMIT|$)/i);
+  let pi = 0;
   if (whereM) {
-    let pi = 0;
-    const conditions = whereM[1].split(/\s+AND\s+/i);
-    for (const cond of conditions) {
-      const m = cond.trim().match(/(\w+)\s*(<|<=|>|>=|=|!=|<>)\s*\?/i);
-      if (m) {
-        const col = m[1].toLowerCase();
-        const op  = m[2];
-        const val = params[pi++];
-        const invOp = op === '!=' || op === '<>' ? '!=' : op;
-        if (invOp === '!=') {
-          rows = rows.filter(r => r[col] !== val);
-        } else {
-          rows = rows.filter(r => compare(r[col], op, val));
-        }
-      }
-    }
+    const result = applyWhere(rows, whereM[1].trim(), params, 0);
+    rows = result.rows;
+    pi   = result.pi;
   }
+  void pi; // consumed above
 
-  // LIMIT
-  const limitM = sql.match(/LIMIT\s+(\d+)/i);
-  if (limitM) rows = rows.slice(0, parseInt(limitM[1], 10));
-
-  // ORDER BY col DESC
-  const orderM = sql.match(/ORDER BY\s+(\w+)(?:\s+(ASC|DESC))?/i);
-  if (orderM) {
-    const col  = orderM[1].toLowerCase();
-    const desc = (orderM[2] ?? '').toUpperCase() === 'DESC';
-    rows.sort((a, b) => {
-      if (a[col] < b[col]) return desc ? 1 : -1;
-      if (a[col] > b[col]) return desc ? -1 : 1;
-      return 0;
-    });
-  }
-
-  // SELECT col list (or *)
+  // SELECT col list (or *) — detect aggregates/DISTINCT before ORDER BY / LIMIT
   const selM = sql.match(/^SELECT\s+(.*?)\s+FROM/i);
   if (selM && selM[1].trim() !== '*') {
-    // Handle aggregate functions and aliases for GROUP BY aggregation
-    const selRaw = selM[1];
+    const selRaw = selM[1].trim();
     if (/COUNT|SUM|AVG|MAX|MIN|DISTINCT/i.test(selRaw)) {
-      return execAggregate(rows, selRaw, sql, params);
+      return execAggregate(rows, selRaw, sql);
     }
-    // Project specific columns
-    const cols = selRaw.split(',').map(c => {
-      const alias = c.match(/(\w+)\s+AS\s+(\w+)/i);
-      if (alias) return { from: alias[1].toLowerCase(), to: alias[2].toLowerCase() };
-      const col   = c.trim().toLowerCase();
-      return { from: col, to: col };
-    });
-    return rows.map(r => {
-      const out: Row = {};
-      for (const { from, to } of cols) out[to] = r[from];
-      return out;
-    });
+    // ORDER BY then LIMIT on plain projection
+    rows = applyOrderBy(rows, sql);
+    rows = applyLimit(rows, sql);
+    return projectColumns(rows, selRaw);
   }
 
+  // SELECT *
+  rows = applyOrderBy(rows, sql);
+  rows = applyLimit(rows, sql);
   return rows;
 }
 
+function applyOrderBy(rows: Row[], sql: string): Row[] {
+  const orderM = sql.match(/ORDER\s+BY\s+(\w+)(?:\s+(ASC|DESC))?/i);
+  if (!orderM) return rows;
+  const col  = orderM[1].toLowerCase();
+  const desc = (orderM[2] ?? '').toUpperCase() === 'DESC';
+  return [...rows].sort((a, b) => {
+    if (a[col] < b[col]) return desc ? 1 : -1;
+    if (a[col] > b[col]) return desc ? -1 : 1;
+    return 0;
+  });
+}
+
+function applyLimit(rows: Row[], sql: string): Row[] {
+  const limitM = sql.match(/LIMIT\s+(\d+)/i);
+  if (!limitM) return rows;
+  return rows.slice(0, parseInt(limitM[1], 10));
+}
+
+function projectColumns(rows: Row[], selRaw: string): Row[] {
+  const cols = selRaw.split(',').map(c => {
+    const alias = c.match(/(\w+)\s+AS\s+(\w+)/i);
+    // FIX: preserve alias case — do NOT toLowerCase() the alias
+    if (alias) return { from: alias[1].toLowerCase(), to: alias[2] };
+    const col = c.trim().toLowerCase();
+    return { from: col, to: col };
+  });
+  return rows.map(r => {
+    const out: Row = {};
+    for (const { from, to } of cols) out[to] = r[from];
+    return out;
+  });
+}
+
 /** Handle aggregate SELECT (COUNT, SUM, AVG, MAX, MIN, DISTINCT). */
-function execAggregate(rows: Row[], selRaw: string, fullSql: string, _params: any[]): Row[] {
-  // GROUP BY
+function execAggregate(rows: Row[], selRaw: string, fullSql: string): Row[] {
+  // ── SELECT DISTINCT col1, col2, ... (no GROUP BY, no aggregate fns) ──────
+  // e.g. SELECT DISTINCT adapter_mac AS adapter_id, adapter_name
+  const isDistinctOnly = /^DISTINCT\s+/i.test(selRaw.trim()) && !/COUNT|SUM|AVG|MAX|MIN/i.test(selRaw);
+  if (isDistinctOnly) {
+    // Remove DISTINCT prefix then project + deduplicate
+    const colsPart = selRaw.replace(/^DISTINCT\s+/i, '');
+    const projected = projectColumns(rows, colsPart);
+    // Deduplicate on all projected columns
+    const seen = new Set<string>();
+    return projected.filter(r => {
+      const key = JSON.stringify(r);
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  }
+
+  // ── GROUP BY ─────────────────────────────────────────────────────────────
   const groupM = fullSql.match(/GROUP\s+BY\s+(\w+)/i);
   if (groupM) {
     const groupCol = groupM[1].toLowerCase();
@@ -251,14 +345,18 @@ function execAggregate(rows: Row[], selRaw: string, fullSql: string, _params: an
       if (!groups.has(key)) groups.set(key, []);
       groups.get(key)!.push(r);
     }
-    return [...groups.entries()].map(([key, grp]) =>
+    let result = [...groups.entries()].map(([key, grp]) =>
       computeAggRow(selRaw, grp, groupCol, key)
     );
+    result = applyOrderBy(result, fullSql);
+    result = applyLimit(result, fullSql);
+    return result;
   }
 
-  // No GROUP BY — single aggregate row
-  if (rows.length === 0) return [];
-  return [computeAggRow(selRaw, rows, null, null)];
+  // ── No GROUP BY — single aggregate row ───────────────────────────────────
+  // When there are no rows, still return a zero-filled row for .get() to consume
+  const aggRow = computeAggRow(selRaw, rows, null, null);
+  return [aggRow];
 }
 
 /** Compute one aggregate result row from a group of rows. */
@@ -270,13 +368,19 @@ function computeAggRow(selRaw: string, rows: Row[], groupCol: string | null, gro
   for (const expr of exprs) {
     const e = expr.trim();
     const aliasM = e.match(/(.+)\s+AS\s+(\w+)/i);
-    const alias  = aliasM ? aliasM[2].toLowerCase() : null;
+    // FIX: preserve alias case exactly — do NOT toLowerCase()
+    const alias  = aliasM ? aliasM[2] : null;
     const body   = (aliasM ? aliasM[1] : e).trim();
 
     // COUNT(*) or COUNT(col)
     if (/^COUNT\s*\(/i.test(body)) {
+      const colInner = (body.match(/^COUNT\s*\(\s*DISTINCT\s+(\w+)\s*\)/i) ?? [])[1];
       const key = alias ?? 'count(*)';
-      out[key] = rows.length;
+      if (colInner) {
+        out[key] = new Set(rows.map(r => r[colInner.toLowerCase()])).size;
+      } else {
+        out[key] = rows.length;
+      }
       continue;
     }
     // SUM(col)
@@ -295,12 +399,21 @@ function computeAggRow(selRaw: string, rows: Row[], groupCol: string | null, gro
       out[key] = rows.length ? rows.reduce((acc, r) => acc + (Number(r[col]) || 0), 0) / rows.length : 0;
       continue;
     }
+    // CAST(AVG(col) AS INTEGER) — statsService uses this pattern
+    const castAvgM = body.match(/^CAST\s*\(\s*AVG\s*\((\w+)\)\s*AS\s+INTEGER\s*\)/i);
+    if (castAvgM) {
+      const col = castAvgM[1].toLowerCase();
+      const key = alias ?? `avg(${col})`;
+      const avg = rows.length ? rows.reduce((acc, r) => acc + (Number(r[col]) || 0), 0) / rows.length : 0;
+      out[key] = Math.trunc(avg);
+      continue;
+    }
     // MAX(col)
     const maxM = body.match(/^MAX\s*\((\w+)\)/i);
     if (maxM) {
       const col = maxM[1].toLowerCase();
       const key = alias ?? `max(${col})`;
-      out[key] = rows.reduce((acc, r) => Math.max(acc, Number(r[col]) || 0), -Infinity);
+      out[key] = rows.length ? rows.reduce((acc, r) => Math.max(acc, Number(r[col]) || 0), -Infinity) : null;
       continue;
     }
     // MIN(col)
@@ -308,10 +421,10 @@ function computeAggRow(selRaw: string, rows: Row[], groupCol: string | null, gro
     if (minM) {
       const col = minM[1].toLowerCase();
       const key = alias ?? `min(${col})`;
-      out[key] = rows.reduce((acc, r) => Math.min(acc, Number(r[col]) || 0), Infinity);
+      out[key] = rows.length ? rows.reduce((acc, r) => Math.min(acc, Number(r[col]) || 0), Infinity) : null;
       continue;
     }
-    // DISTINCT col
+    // DISTINCT col (inside aggregate context — kept for non-leading DISTINCT)
     const distM = body.match(/^DISTINCT\s+(\w+)/i);
     if (distM) {
       const col = distM[1].toLowerCase();
@@ -319,10 +432,13 @@ function computeAggRow(selRaw: string, rows: Row[], groupCol: string | null, gro
       out[key] = [...new Set(rows.map(r => r[col]))];
       continue;
     }
-    // Plain column
-    const col = body.toLowerCase();
-    if (groupCol && col === groupCol) { out[col] = groupVal; continue; }
-    out[alias ?? col] = rows[0]?.[col];
+    // Plain column reference (e.g. adapter_name AS adapterId inside a GROUP BY query)
+    const plainCol = body.toLowerCase();
+    if (groupCol && plainCol === groupCol) {
+      out[alias ?? plainCol] = groupVal;
+      continue;
+    }
+    out[alias ?? plainCol] = rows[0]?.[plainCol];
   }
   return out;
 }
@@ -340,7 +456,6 @@ class DatabaseStub {
   pragma(_s: string): void { /* no-op */ }
 
   exec(sql: string): void {
-    // Execute each semicolon-separated statement
     for (const stmt of sql.split(';')) {
       const t = stmt.trim();
       if (t) runSql(this.store, this.schemas, t, []);
