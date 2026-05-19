@@ -64,8 +64,10 @@ module.exports = {
   collectCoverageFrom: [
     'src/main/**/*.{ts,tsx}',
     '!src/main/**/*.d.ts',
-    '!src/main/main.ts',      // entry point — hard to unit-test
-    '!src/main/preload.ts',   // covered by integration tests
+    '!src/main/main.ts',          // entry point — hard to unit-test
+    '!src/main/preload.ts',       // covered by integration tests
+    '!src/main/ipc/**',           // Electron IPC wiring — requires a live renderer
+    '!src/main/network/trafficPoller.ts', // polling loop — requires live systeminformation
     '!src/__mocks__/**',
   ],
 

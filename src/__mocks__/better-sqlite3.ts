@@ -254,7 +254,8 @@ function execSelect(store: Store, sql: string, params: any[]): Row[] {
   const tbl = tblM[1].toLowerCase();
   let rows  = [...(store.get(tbl) ?? [])];
 
-  // Apply WHERE
+  // Apply WHERE — track how many params it consumed so we know the
+  // index of the trailing LIMIT ? param (if any).
   const whereM = sql.match(/WHERE\s+(.+?)(?:\s+ORDER\s+BY|\s+GROUP\s+BY|\s+LIMIT|$)/i);
   let pi = 0;
   if (whereM) {
@@ -262,24 +263,23 @@ function execSelect(store: Store, sql: string, params: any[]): Row[] {
     rows = result.rows;
     pi   = result.pi;
   }
-  void pi; // consumed above
 
   // SELECT col list (or *) — detect aggregates/DISTINCT before ORDER BY / LIMIT
   const selM = sql.match(/^SELECT\s+(.*?)\s+FROM/i);
   if (selM && selM[1].trim() !== '*') {
     const selRaw = selM[1].trim();
     if (/COUNT|SUM|AVG|MAX|MIN|DISTINCT/i.test(selRaw)) {
-      return execAggregate(rows, selRaw, sql);
+      return execAggregate(rows, selRaw, sql, params, pi);
     }
     // ORDER BY then LIMIT on plain projection
     rows = applyOrderBy(rows, sql);
-    rows = applyLimit(rows, sql);
+    rows = applyLimit(rows, sql, params, pi);
     return projectColumns(rows, selRaw);
   }
 
   // SELECT *
   rows = applyOrderBy(rows, sql);
-  rows = applyLimit(rows, sql);
+  rows = applyLimit(rows, sql, params, pi);
   return rows;
 }
 
@@ -295,10 +295,23 @@ function applyOrderBy(rows: Row[], sql: string): Row[] {
   });
 }
 
-function applyLimit(rows: Row[], sql: string): Row[] {
-  const limitM = sql.match(/LIMIT\s+(\d+)/i);
-  if (!limitM) return rows;
-  return rows.slice(0, parseInt(limitM[1], 10));
+/**
+ * Apply LIMIT to rows.
+ * Supports both literal digits (LIMIT 10) and placeholders (LIMIT ?).
+ * When the SQL contains LIMIT ?, the limit value is read from params[pi].
+ */
+function applyLimit(rows: Row[], sql: string, params: any[] = [], pi = 0): Row[] {
+  // Literal digit: LIMIT 10
+  const literalM = sql.match(/LIMIT\s+(\d+)/i);
+  if (literalM) return rows.slice(0, parseInt(literalM[1], 10));
+
+  // Placeholder: LIMIT ?
+  if (/LIMIT\s+\?/i.test(sql)) {
+    const n = Number(params[pi]);
+    if (!isNaN(n) && n >= 0) return rows.slice(0, n);
+  }
+
+  return rows;
 }
 
 function projectColumns(rows: Row[], selRaw: string): Row[] {
@@ -317,7 +330,7 @@ function projectColumns(rows: Row[], selRaw: string): Row[] {
 }
 
 /** Handle aggregate SELECT (COUNT, SUM, AVG, MAX, MIN, DISTINCT). */
-function execAggregate(rows: Row[], selRaw: string, fullSql: string): Row[] {
+function execAggregate(rows: Row[], selRaw: string, fullSql: string, params: any[] = [], pi = 0): Row[] {
   // ── SELECT DISTINCT col1, col2, ... (no GROUP BY, no aggregate fns) ──────
   // e.g. SELECT DISTINCT adapter_mac AS adapter_id, adapter_name
   const isDistinctOnly = /^DISTINCT\s+/i.test(selRaw.trim()) && !/COUNT|SUM|AVG|MAX|MIN/i.test(selRaw);
@@ -349,7 +362,7 @@ function execAggregate(rows: Row[], selRaw: string, fullSql: string): Row[] {
       computeAggRow(selRaw, grp, groupCol, key)
     );
     result = applyOrderBy(result, fullSql);
-    result = applyLimit(result, fullSql);
+    result = applyLimit(result, fullSql, params, pi);
     return result;
   }
 
