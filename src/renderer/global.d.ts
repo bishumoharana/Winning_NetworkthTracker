@@ -30,6 +30,13 @@ interface SummaryRow {
   sampleCount: number; adapterCount: number;
 }
 
+interface AggregatedQuery {
+  adapterName?: string;
+  since:        number;
+  until:        number;
+  limit:        number;
+}
+
 type UpdateStatus =
   | { type: 'checking' }
   | { type: 'available';      version: string }
@@ -41,10 +48,16 @@ type UpdateStatus =
 declare global {
   interface Window {
     electronAPI: {
-      // Network
+      // Network — queries
       getAdapters:    () => Promise<NetworkAdapter[]>;
-      getMetrics:     (adapterId: string) => Promise<NetworkMetric[]>;
-      onMetricUpdate: (cb: (metrics: NetworkMetric[]) => void) => () => void;
+      getMetrics:     (adapterIdOrQuery: string | AggregatedQuery) => Promise<NetworkMetric[]>;
+      getAggregated:  (query: AggregatedQuery) => Promise<NetworkMetric[]>;
+      // Network — live listeners
+      onMetricUpdate:         (cb: (metrics: NetworkMetric[]) => void) => () => void;
+      onNetworkMetric:        (cb: (metric: NetworkMetric)    => void) => () => void;
+      onNetworkChange:        (cb: (adapters: NetworkAdapter[]) => void) => () => void;
+      removeNetworkListeners: () => void;
+      removeMetricListeners:  () => void;
       // Theme
       getTheme: () => Promise<string>;
       setTheme: (theme: Theme) => Promise<string>;
