@@ -1,5 +1,10 @@
 /**
  * Unit tests for Issue #21 — exportService
+ *
+ * Schema alignment fix: network_metrics has no `adapter_id` column.
+ * The stable machine identifier is stored in `adapter_mac`.
+ * exportService.ts aliases adapter_mac AS adapter_id in SELECT.
+ * The seed helper here uses adapter_mac so the test DB matches production.
  */
 import Database from 'better-sqlite3';
 import * as os   from 'os';
@@ -24,16 +29,22 @@ import {
 
 const NOW = 1_747_500_000_000;
 
+/**
+ * Seed helper — uses the real schema columns:
+ *   adapter_name, adapter_mac (NOT adapter_id)
+ * exportService aliases adapter_mac AS adapter_id in queries.
+ */
 function seedDb(db: InstanceType<typeof Database>) {
   db.exec(CREATE_NETWORK_METRICS);
   const ins = db.prepare(
     `INSERT INTO network_metrics
-     (adapter_id, adapter_name, timestamp, bytes_sent, bytes_received, speed_up, speed_down)
+     (adapter_name, adapter_mac, timestamp, bytes_sent, bytes_received, speed_up, speed_down)
      VALUES (?, ?, ?, ?, ?, ?, ?)`
   );
-  ins.run('eth0', 'Ethernet', NOW - 5000, 1000, 2000, 100, 200);
-  ins.run('eth0', 'Ethernet', NOW,        3000, 4000, 300, 400);
-  ins.run('wlan0', 'Wi-Fi', NOW - 2000, 500, 600, 50, 60);
+  // adapter_mac used as the stable adapter id
+  ins.run('Ethernet', 'eth0',  NOW - 5000, 1000, 2000, 100, 200);
+  ins.run('Ethernet', 'eth0',  NOW,        3000, 4000, 300, 400);
+  ins.run('Wi-Fi',    'wlan0', NOW - 2000,  500,  600,  50,  60);
 }
 
 beforeEach(() => {
@@ -48,7 +59,7 @@ describe('queryMetrics', () => {
     expect(queryMetrics({ format: 'csv' })).toHaveLength(3);
   });
 
-  it('filters by adapterId', () => {
+  it('filters by adapterId (matches adapter_mac)', () => {
     const rows = queryMetrics({ format: 'csv', adapterId: 'eth0' });
     expect(rows).toHaveLength(2);
     rows.forEach(r => expect(r.adapter_id).toBe('eth0'));
