@@ -63,10 +63,12 @@ export function useHistoricalMetrics(
       const since = now - RANGE_MS[timeRange];
 
       if (USE_AGGREGATED[timeRange]) {
+        // 7d ÷ 2h buckets = 84 max rows; pass limit to satisfy AggregatedQuery and select array overload
         const agg = await window.electronAPI.getAggregated({
           adapterName: adapterName || undefined,
           since,
           until: now,
+          limit: 84,
         });
         setChartData(aggToChartPoints(agg));
       } else {

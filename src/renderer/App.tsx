@@ -62,10 +62,10 @@ const App: React.FC = () => {
   useEffect(() => {
     window.electronAPI?.getTheme().then((t) => setTheme(t as Theme));
     window.electronAPI?.getAdapters().then((a) => { setAdapters(a); setLoading(false); });
-    window.electronAPI?.onNetworkMetric((incoming: NetworkMetric[]) => {
+    window.electronAPI?.onNetworkMetric((metric: NetworkMetric) => {
       setMetrics((prev) => {
         const next = new Map(prev);
-        for (const m of incoming) next.set(m.adapterId, m);
+        next.set(metric.adapterId, metric);
         return next;
       });
     });
