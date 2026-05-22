@@ -1,6 +1,6 @@
 // Single canonical Window augmentation — matches preload.ts exactly.
 // Do NOT redeclare electronAPI in individual component files.
-import { NetworkAdapter, NetworkMetric } from '../shared/types';
+import { NetworkAdapter, NetworkMetric, AggregatedMetric } from '../shared/types';
 
 export {};
 
@@ -32,9 +32,9 @@ interface SummaryRow {
 
 interface AggregatedQuery {
   adapterName?: string;
-  since:        number;
-  until:        number;
-  limit:        number;
+  since?:       number;
+  until?:       number;
+  limit?:       number;
 }
 
 type UpdateStatus =
@@ -51,7 +51,7 @@ declare global {
       // Network — queries
       getAdapters:    () => Promise<NetworkAdapter[]>;
       getMetrics:     (adapterIdOrQuery: string | AggregatedQuery) => Promise<NetworkMetric[]>;
-      getAggregated:  (query: AggregatedQuery) => Promise<NetworkMetric[]>;
+      getAggregated:  (query: AggregatedQuery) => Promise<AggregatedMetric[]>;
       // Network — live listeners
       onMetricUpdate:         (cb: (metrics: NetworkMetric[]) => void) => () => void;
       onNetworkMetric:        (cb: (metric: NetworkMetric)    => void) => () => void;
